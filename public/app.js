@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.3'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto)
+  const VERSION = '2.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '' });
   const S = window.KupaStore;
@@ -270,7 +270,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -407,8 +407,18 @@
       }
       if (q && !((t.merchant || '').toUpperCase().includes(q) || (t.memo || '').toUpperCase().includes(q))) return false;
       return true;
-    }).sort((a, b) => b.date.localeCompare(a.date));
+    }).sort(SORTS[ui.sort] ? SORTS[ui.sort].fn : SORTS['date-desc'].fn);
   }
+  const amtOf = (t) => (t.amount == null ? -Infinity : t.amount);
+  const byDate = (a, b) => b.date.localeCompare(a.date);
+  const SORTS = {
+    'date-desc': { label: 'תאריך: חדש → ישן', fn: byDate },
+    'date-asc': { label: 'תאריך: ישן → חדש', fn: (a, b) => a.date.localeCompare(b.date) },
+    'amt-desc': { label: 'סכום: גבוה → נמוך', fn: (a, b) => amtOf(b) - amtOf(a) || byDate(a, b) },
+    'amt-asc': { label: 'סכום: נמוך → גבוה', fn: (a, b) => (a.amount == null) - (b.amount == null) || amtOf(a) - amtOf(b) || byDate(a, b) },
+    'name-asc': { label: 'שם: א → ת', fn: (a, b) => heCmp(a.merchant || '', b.merchant || '') || byDate(a, b) },
+    'name-desc': { label: 'שם: ת → א', fn: (a, b) => heCmp(b.merchant || '', a.merchant || '') || byDate(a, b) },
+  };
 
   function viewTxns() {
     const list = filteredTxns();
@@ -442,7 +452,9 @@
         ui.f.card && ignoredLabels.has(ui.f.card) ? h('span', { class: 'pill warn' }, 'כרטיס מוחרג — לא נספר') : null,
         ui.f.rule && ruleById(ui.f.rule) ? h('button', { class: 'pill accent', onclick: () => { ui.f.rule = ''; render(); } }, 'חוק: ' + ruleText(ruleById(ui.f.rule)) + ' ✕') : null,
         ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
-        h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), style: 'margin-inline-start:auto', onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
+        h('select', { class: 'sortsel', 'aria-label': 'מיון', style: 'margin-inline-start:auto', onchange: (e) => { ui.sort = e.target.value; try { sessionStorage.setItem('kupa-sort', ui.sort); } catch (x) { /* ignore */ } render(); } },
+          Object.entries(SORTS).map(([k, v]) => h('option', { value: k, selected: ui.sort === k }, '↕ ' + v.label))),
+        h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
       h('section', { class: 'card', style: 'padding:4px 12px' },
         list.length ? h('div', { class: 'txlist' }, list.slice(0, 500).map(txRow)) : h('div', { class: 'empty' }, 'אין עסקאות שמתאימות לסינון'),
         list.length > 500 ? h('div', { class: 'faint', style: 'padding:8px' }, 'מוצגות 500 הראשונות — צמצם את הסינון') : null),
@@ -1199,6 +1211,7 @@
   function startApp(view) {
     migrate();
     ui.month = thisMonth(); ui.view = view || 'month';
+    try { const so = sessionStorage.getItem('kupa-sort'); if (so) ui.sort = so; } catch (e) { /* ignore */ }
     try { history.replaceState({ v: ui.view }, ''); } catch (e) { /* ignore */ }
     render(); lastTouch = 0; resetIdle();
   }

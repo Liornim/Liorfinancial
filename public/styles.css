@@ -243,3 +243,4 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .rule .ractions { display: flex; gap: 6px; }
 /* room to scroll the last button out from under the floating "+" */
 @media (max-width: 759px) { .shell { padding-bottom: calc(150px + env(safe-area-inset-bottom)); } }
+.sortsel { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
