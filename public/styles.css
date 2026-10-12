@@ -204,3 +204,10 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .dates > div { display: flex; flex-direction: column; }
 .dates .faint { font-size: 12px; }
 .tx .meta .bill { color: var(--ink-3); }
+
+.cardlist { display: grid; gap: 4px; }
+.cardrow { display: flex; align-items: flex-end; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.cardrow .check { padding-bottom: 9px; white-space: nowrap; }
+.cardrow.off input[type=text] { color: var(--ink-3); text-decoration: line-through; }
+.cardrow .field { flex: 1 1 auto; min-width: 0; }
+.cardrow .check { flex: 0 0 auto; }

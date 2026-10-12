@@ -90,7 +90,7 @@
 
   const Store = {
     keys: null, version: 0, data: null,
-    saving: false, dirty: false, timer: null, listeners: [],
+    saving: false, dirty: false, timer: null, listeners: [], rev: 0,
 
     meta() { return api('/api/meta'); },
 
@@ -134,7 +134,7 @@
     emit(s, extra) { this.listeners.forEach((f) => f(s, extra)); },
 
     save() { // debounced
-      this.dirty = true; this.emit('dirty');
+      this.dirty = true; this.rev++; this.emit('dirty');
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.flush(), 700);
     },
@@ -143,14 +143,23 @@
       if (!this.dirty || this.saving) return;
       this.saving = true; this.emit('saving');
       try {
+        const rev = this.rev; // changes made while this request is in flight must not be marked as saved
         const snapshot = JSON.parse(JSON.stringify(this.data));
         const blob = await encrypt(this.keys.aes, snapshot);
         const r = await api('/api/data', { method: 'PUT', body: JSON.stringify({ baseVersion: this.version, blob }) }, this.keys.auth);
-        this.version = r.version; this.dirty = false; this.emit('saved');
+        this.version = r.version; this.dirty = this.rev !== rev; this.emit(this.dirty ? 'dirty' : 'saved');
       } catch (e) {
         if (e.status === 409) { await this.reload(); this.emit('conflict'); } else { this.emit('error', e); }
       } finally { this.saving = false; }
       if (this.dirty) this.flush();
+    },
+
+    async settle(maxMs = 8000) { // wait until everything is on the server (used before locking)
+      const until = Date.now() + maxMs;
+      while ((this.saving || this.dirty) && Date.now() < until) {
+        if (!this.saving && this.dirty) { clearTimeout(this.timer); await this.flush(); }
+        else await new Promise((r) => setTimeout(r, 100));
+      }
     },
 
     async versions() { return (await api('/api/versions', {}, this.keys.auth)).versions; },

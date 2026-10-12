@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.8'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format
+  const VERSION = '1.9'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -112,8 +112,10 @@
   const monthOf = (t) => monthOfRaw(t, ui.basis);
   const basisLabel = () => (ui.basis === 'purchase' ? 'לפי תאריך עסקה' : 'לפי חודש חיוב');
   // signed contribution: expenses positive, refunds negative; income tracked separately
+  // a card switched off in settings: its transactions stay stored but count nowhere and are hidden
+  const ignoredCard = (t) => t.source === 'card' && !!(D().cards[t.card] && D().cards[t.card].ignored);
   function parts(t) {
-    if (t.excluded || t.amount == null) return [];
+    if (t.excluded || t.amount == null || ignoredCard(t)) return [];
     if (t.splits && t.splits.length) return t.splits.map((sp) => ({ cat: sp.cat, amount: sp.amount }));
     return [{ cat: t.cat || null, amount: t.amount }];
   }
@@ -338,7 +340,7 @@
     // latest known installment per purchase; project remaining ones forward
     const latest = new Map();
     for (const t of D().txns) {
-      if (!t.inst || t.inst.n >= t.inst.of || t.amount == null) continue;
+      if (!t.inst || t.inst.n >= t.inst.of || t.amount == null || ignoredCard(t)) continue;
       const k = t.card + '|' + (t.voucher || t.merchant + t.date);
       const cur = latest.get(k); if (!cur || t.inst.n > cur.inst.n) latest.set(k, t);
     }
@@ -361,6 +363,7 @@
     return D().txns.filter((t) => {
       if (f.month && monthOf(t) !== f.month) return false;
       if (f.card && cardLabel(t) !== f.card) return false;
+      if (!f.card && ignoredCard(t)) return false;
       if (f.abroad && !t.abroad) return false;
       if (f.standing && !t.standing) return false;
       if (f.onlyNone && (t.cat || (t.splits && t.splits.length) || t.excluded)) return false;
@@ -375,8 +378,10 @@
 
   function viewTxns() {
     const list = filteredTxns();
-    const total = list.reduce((n, t) => n + parts(t).reduce((m, p) => m + (ui.f.cat && ui.f.cat !== '_none' && t.splits ? (p.cat === ui.f.cat ? p.amount : 0) : p.amount), 0), 0);
+    const total = list.reduce((n, t) => n + (ignoredCard(t) ? [{ cat: t.cat, amount: t.amount || 0 }] : parts(t)).reduce((m, p) => m + (ui.f.cat && ui.f.cat !== '_none' && t.splits ? (p.cat === ui.f.cat ? p.amount : 0) : p.amount), 0), 0);
     const cards = [...new Set(D().txns.map(cardLabel))].sort();
+    const ignoredLabels = new Set(Object.values(D().cards).filter((c) => c.ignored).map((c) => c.label));
+    const hiddenCount = ui.f.card ? 0 : D().txns.filter(ignoredCard).length;
     const months = allMonths().reverse();
     const upd = (k, v) => { ui.f[k] = v; render(); };
     let qTimer;
@@ -389,12 +394,14 @@
         search,
         h('select', { 'aria-label': 'חודש', title: basisLabel(), onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m) + (ui.basis === 'purchase' ? ' (עסקה)' : ' (חיוב)')))),
         h('select', { 'aria-label': 'קטגוריה', onchange: (e) => upd('cat', e.target.value) }, h('option', { value: '' }, 'כל הקטגוריות'), h('option', { value: '_none', selected: ui.f.cat === '_none' }, 'לסיווג'), D().categories.map((c) => h('option', { value: c.id, selected: ui.f.cat === c.id }, c.name))),
-        h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c))),
+        h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c + (ignoredLabels.has(c) ? ' (מוחרג)' : '')))),
         h('div', { class: 'row' },
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.onlyNone, onchange: (e) => upd('onlyNone', e.target.checked) }), 'רק לסיווג'),
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל'))),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
         (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad || ui.f.standing) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
+        hiddenCount ? h('span', { class: 'faint' }, `· ${hiddenCount} מכרטיסים מוחרגים מוסתרות`) : null,
+        ui.f.card && ignoredLabels.has(ui.f.card) ? h('span', { class: 'pill warn' }, 'כרטיס מוחרג — לא נספר') : null,
         ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
         h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), style: 'margin-inline-start:auto', onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
       h('section', { class: 'card', style: 'padding:4px 12px' },
@@ -672,6 +679,7 @@
         plan.crossDup ? h('span', { class: 'pill warn' }, `${plan.crossDup} מהן זוהו לפי תאריך+סכום מייצוא בפורמט אחר`) : null,
         plan.add.length ? h('span', { class: 'pill' }, `${autoCat} יסווגו אוטומטית`) : null),
       Object.keys(byMonth).length ? h('div', { class: 'faint' }, `ייספרו בחודשים (${basisLabel()}): ` + Object.entries(byMonth).sort().map(([m, n]) => `${mLabel(m)} (${n})`).join(', ')) : null,
+      parsed.statements.filter((st) => D().cards[st.card] && D().cards[st.card].ignored).map((st) => h('div', { class: 'notice info' }, `כרטיס ${D().cards[st.card].label} מוחרג בהגדרות — העסקאות שלו ייובאו אבל לא ייספרו`)),
       parsed.warnings.map((w) => h('div', { class: 'notice' }, w)),
       !allOk ? h('label', { class: 'check check-bad' }, h('input', { type: 'checkbox', checked: pi.force, onchange: (e) => { pi.force = e.target.checked; render(); } }), 'הבנתי שיש פער — לייבא בכל זאת') : null,
       h('div', { class: 'row' },
@@ -698,14 +706,14 @@
 
     // top merchants in range
     const merch = {};
-    const inRange = D().txns.filter((t) => months.includes(monthOf(t)) && !t.excluded && t.dir !== 'in' && t.amount != null && !(catById(t.cat) && catById(t.cat).type !== 'expense'));
+    const inRange = D().txns.filter((t) => months.includes(monthOf(t)) && !t.excluded && !ignoredCard(t) && t.dir !== 'in' && t.amount != null && !(catById(t.cat) && catById(t.cat).type !== 'expense'));
     for (const t of inRange) { const k = normMerchant(t.merchant); (merch[k] = merch[k] || { name: t.merchant, sum: 0, n: 0 }); merch[k].sum += t.amount; merch[k].n++; }
     const top = Object.values(merch).sort((a, b) => b.sum - a.sum).slice(0, 15);
 
     // by card: everything charged to each card (all categories, like the bill itself), per month in range
     const byCard = {};
     for (const t of D().txns) {
-      if (t.amount == null || t.dir === 'in') continue;
+      if (t.amount == null || t.dir === 'in' || ignoredCard(t)) continue;
       const mi = months.indexOf(monthOf(t)); if (mi < 0) continue;
       const k = cardLabel(t);
       const r = (byCard[k] = byCard[k] || { label: k, vals: months.map(() => 0), n: 0, abroad: 0, sum: 0 });
@@ -863,8 +871,14 @@
         h('label', { class: 'field', style: 'max-width:240px' }, h('span', null, 'נעילה אוטומטית אחרי (דקות)'),
           h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { if (!S.data) return; D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 3)); S.save(); lastTouch = 0; resetIdle(); } }))),
       cardEntries.length ? h('section', { class: 'card stack' }, h('h2', null, 'כרטיסים'),
-        h('div', { class: 'fields' }, cardEntries.map(([num, c]) => h('label', { class: 'field' }, h('span', null, 'מסתיים ב-' + num),
-          h('input', { type: 'text', value: c.label, onchange: (e) => { c.label = e.target.value.trim() || c.label; S.save(); } }))))) : null,
+        h('div', { class: 'faint' }, 'כרטיס מוחרג ממשיך להיות מיובא ונשמר, אבל לא נספר בתקציב, בדוחות ובתשלומים העתידיים, ומוסתר ברשימת העסקאות. אפשר להחזיר בכל רגע.'),
+        h('div', { class: 'cardlist' }, cardEntries.map(([num, c]) => {
+          const n = D().txns.filter((t) => t.source === 'card' && t.card === num).length;
+          return h('div', { class: 'cardrow' + (c.ignored ? ' off' : '') },
+            h('label', { class: 'field grow' }, h('span', null, `מסתיים ב-${num} · ${n} עסקאות`),
+              h('input', { type: 'text', value: c.label, onchange: (e) => { c.label = e.target.value.trim() || c.label; S.save(); } })),
+            h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!c.ignored, onchange: (e) => { c.ignored = e.target.checked; S.save(); toast(c.ignored ? `${c.label} מוחרג` : `${c.label} נספר שוב`); render(); } }), 'להחריג'));
+        }))) : null,
       h('section', { class: 'card stack' },
         h('div', { class: 'section-title' }, h('h2', null, 'חוקי סיווג שנלמדו'), h('span', { class: 'faint' }, `${learned.length} חוקים · ועוד ${D().rules.length - learned.length} מובנים`)),
         learned.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'grid' }, h('tbody', null, learned.map((r) => h('tr', null, h('td', null, r.text), h('td', null, '← ' + catName(r.cat)),
@@ -979,7 +993,7 @@
   }
   let lastTouch = 0;
   async function lockNow(msg) {
-    if (S.dirty) { try { await S.flush(); } catch (e) { /* ignore */ } }
+    try { await S.settle(); } catch (e) { /* ignore */ }
     await S.lock(); pendingImports = []; clearTimeout(idleTimer); lastTouch = 0;
     try { sessionStorage.removeItem('kupa-view'); } catch (e) { /* ignore */ }
     document.querySelectorAll('.scrim, .toast').forEach((e) => e.remove());
