@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.1'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter
+  const VERSION = '3.2'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -1150,13 +1150,15 @@
       const visible = () => items.filter((x) => (conf === 'all' || (x.confidence || 'high') === conf) && (status === 'all' || (status === 'exists') === x.exists));
       const draw = () => {
         const v = visible();
-        count.textContent = `${items.filter((x) => x.on).length} נבחרו מתוך ${items.length}`;
+        count.textContent = `מוצגים ${v.length} · נבחרו ${items.filter((x) => x.on).length} מתוך ${items.length}`;
+        const okConf = (x, k) => k === 'all' || (x.confidence || 'high') === k;
+        const okStat = (x, k) => k === 'all' || (k === 'exists') === x.exists;
         seg.replaceChildren(...[['all', 'הכל'], ['high', 'בטוח'], ['medium', 'סביר'], ['low', 'ניחוש']].map(([k, lbl]) => {
-          const n = k === 'all' ? items.length : items.filter((x) => (x.confidence || 'high') === k).length;
+          const n = items.filter((x) => okConf(x, k) && okStat(x, status)).length; // counts within the other filter
           return h('button', { type: 'button', 'aria-pressed': conf === k ? 'true' : 'false', onclick: () => { conf = k; draw(); } }, `${lbl} (${n})`);
         }));
         seg2.replaceChildren(...[['all', 'הכל'], ['new', 'חדש'], ['exists', 'כבר קיים']].map(([k, lbl]) => {
-          const n = k === 'all' ? items.length : items.filter((x) => (k === 'exists') === x.exists).length;
+          const n = items.filter((x) => okStat(x, k) && okConf(x, conf)).length;
           return h('button', { type: 'button', 'aria-pressed': status === k ? 'true' : 'false', onclick: () => { status = k; draw(); } }, `${lbl} (${n})`);
         }));
         if (!v.length) { list.replaceChildren(h('div', { class: 'empty' }, 'אין שורות בסינון הזה')); return; }
