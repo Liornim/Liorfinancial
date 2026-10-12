@@ -1,9 +1,9 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor
+  const VERSION = '2.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters
   const VERSION_DATE = '12.10.26';
-  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '' });
+  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
   const P = window.KupaParsers;
   const $app = document.getElementById('app');
@@ -295,7 +295,7 @@
     render(); window.scrollTo(0, 0);
   }
   // drill-down: jump to transactions with exactly this filter, remembering where we came from
-  function drill(f) { const from = ui.view; ui.selMode = false; ui.sel.clear(); setView('txns', { f: { ...EMPTY_F(), ...f }, back: from }, true); }
+  function drill(f) { if (f.month) { f = { ...f, mFrom: f.month, mTo: f.month, month: '' }; } const from = ui.view; ui.selMode = false; ui.sel.clear(); setView('txns', { f: { ...EMPTY_F(), ...f }, back: from }, true); }
   window.addEventListener('popstate', (e) => { if (!S.data) return; ui.view = (e.state && e.state.v) || 'month'; ui.back = null; render(); });
 
   const syncLabel = h('span', { class: 'sync' }, '');
@@ -408,6 +408,8 @@
     const f = ui.f; const q = f.q.trim().toUpperCase();
     return D().txns.filter((t) => {
       if (f.month && monthOf(t) !== f.month) return false;
+      if (f.mFrom || f.mTo) { const m = monthOf(t); if ((f.mFrom && m < f.mFrom) || (f.mTo && m > f.mTo)) return false; }
+      if (set_(f.dFrom) || set_(f.dTo)) { if (!dayIn(+t.date.slice(8, 10), f.dFrom, f.dTo)) return false; }
       if (f.card && cardLabel(t) !== f.card) return false;
       if (!f.card && ignoredCard(t)) return false;
       if (f.abroad && !t.abroad) return false;
@@ -444,8 +446,8 @@
     const months = allMonths().reverse();
     const upd = (k, v) => { ui.f[k] = v; render(); };
     let qTimer, aTimer;
-    const amountInput = (key, label) => h('label', { class: 'amtf' }, h('span', null, label),
-      h('input', { type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '—', value: ui.f[key] == null ? '' : ui.f[key], 'aria-label': label + ' (₪)', 'data-amt': key,
+    const amountInput = (key, label, isDay) => h('label', { class: 'amtf' }, h('span', null, label),
+      h('input', { type: 'number', inputmode: isDay ? 'numeric' : 'decimal', min: isDay ? '1' : '0', max: isDay ? '31' : null, step: isDay ? '1' : 'any', placeholder: isDay ? (key === 'dFrom' ? '1' : '31') : '—', value: ui.f[key] == null ? '' : ui.f[key], 'aria-label': label + ' (₪)', 'data-amt': key,
         oninput: (e) => { clearTimeout(aTimer); const v = e.target.value; aTimer = setTimeout(() => { ui.f[key] = v; render(); const el = document.querySelector(`input[data-amt="${key}"]`); if (el) el.focus(); }, 450); } }));
     const search = h('input', { type: 'search', placeholder: 'חיפוש בית עסק או הערה', value: ui.f.q, 'aria-label': 'חיפוש',
       oninput: (e) => { clearTimeout(qTimer); const v = e.target.value; qTimer = setTimeout(() => { ui.f.q = v; render(); const el = document.querySelector('input[type=search]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); } });
@@ -454,15 +456,21 @@
       ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה ל' + ({ reports: 'דוחות', month: 'חודש', rules: 'חוקי סיווג' }[ui.back] || 'קודם'))) : null,
       h('div', { class: 'filters' },
         search,
-        h('select', { 'aria-label': 'חודש', title: basisLabel(), onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m) + (ui.basis === 'purchase' ? ' (עסקה)' : ' (חיוב)')))),
+        h('div', { class: 'mrange' },
+          h('select', { 'aria-label': 'מחודש', title: basisLabel(), onchange: (e) => { ui.f.mFrom = e.target.value; ui.f.month = ''; if (ui.f.mTo && ui.f.mFrom && ui.f.mTo < ui.f.mFrom) ui.f.mTo = ui.f.mFrom; render(); } },
+            h('option', { value: '' }, 'מחודש: הכל'), months.slice().reverse().map((m) => h('option', { value: m, selected: ui.f.mFrom === m }, mLabel(m)))),
+          h('select', { 'aria-label': 'עד חודש', title: basisLabel(), onchange: (e) => { ui.f.mTo = e.target.value; ui.f.month = ''; if (ui.f.mFrom && ui.f.mTo && ui.f.mFrom > ui.f.mTo) ui.f.mFrom = ui.f.mTo; render(); } },
+            h('option', { value: '' }, 'עד חודש: הכל'), months.map((m) => h('option', { value: m, selected: ui.f.mTo === m }, mLabel(m))))),
         catPicker({ value: ui.f.cat, ariaLabel: 'סינון קטגוריה', extras: [{ value: '', label: 'כל הקטגוריות' }, { value: '_none', label: 'לסיווג' }], onChange: (v) => upd('cat', v) }),
         h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c + (ignoredLabels.has(c) ? ' (מוחרג)' : '')))),
         h('div', { class: 'row' },
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.onlyNone, onchange: (e) => upd('onlyNone', e.target.checked) }), 'רק לסיווג'),
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל')),
-        h('div', { class: 'row amtrow' }, amountInput('min', 'מ-₪'), amountInput('max', 'עד ₪'))),
+        h('div', { class: 'row amtrow' }, amountInput('min', 'מ-₪'), amountInput('max', 'עד ₪')),
+        h('div', { class: 'row amtrow' }, amountInput('dFrom', 'מיום', true), amountInput('dTo', 'עד יום', true)),
+        h('div', { class: 'faint basisnote' }, `חודשים ${basisLabel()} · ימים לפי תאריך העסקה, בכל חודש שבטווח (אפשר גם 28 עד 3)`)),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
-        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad || ui.f.standing || ui.f.min !== '' || ui.f.max !== '' || ui.f.rule) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
+        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.mFrom || ui.f.mTo || ui.f.dFrom !== '' || ui.f.dTo !== '' || ui.f.onlyNone || ui.f.abroad || ui.f.standing || ui.f.min !== '' || ui.f.max !== '' || ui.f.rule) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
         hiddenCount ? h('span', { class: 'faint' }, `· ${hiddenCount} מכרטיסים מוחרגים מוסתרות`) : null,
         ui.f.card && ignoredLabels.has(ui.f.card) ? h('span', { class: 'pill warn' }, 'כרטיס מוחרג — לא נספר') : null,
         ui.f.rule && ruleById(ui.f.rule) ? h('button', { class: 'pill accent', onclick: () => { ui.f.rule = ''; render(); } }, 'חוק: ' + ruleText(ruleById(ui.f.rule)) + ' ✕') : null,
@@ -1046,7 +1054,7 @@
         seg,
         h('div', { class: 'fields' }, h('label', { class: 'field' }, h('span', null, 'סכום מ-₪ (לא חובה)'), min), h('label', { class: 'field' }, h('span', null, 'עד ₪ (לא חובה)'), max)),
         h('div', { class: 'faint' }, 'לסכום מדויק כתוב אותו מספר בשני השדות. לדוגמה: PAYBOX מ-4600 עד 4600 → חיסכון.'),
-        h('details', { class: 'ruledates', open: !!(r0.mFrom || r0.mTo || r0.dFrom || r0.dTo) || null },
+        !(r0.mFrom || r0.mTo || r0.dFrom || r0.dTo) ? null : h('details', { class: 'ruledates', open: true },
           h('summary', null, 'תאריכים (לא חובה) — לפי תאריך העסקה'),
           h('div', { class: 'stack', style: 'margin-top:8px' },
             h('div', { class: 'fields' }, h('label', { class: 'field' }, h('span', null, 'מחודש'), mFrom), h('label', { class: 'field' }, h('span', null, 'עד חודש'), mTo)),
