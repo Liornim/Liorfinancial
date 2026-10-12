@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.8'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant
+  const VERSION = '2.9'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -695,7 +695,7 @@
           h('div', null, h('span', { class: 'faint' }, 'נספר ב'), h('b', null, mLabel(monthOf(t)))),
           h('div', null, h('span', { class: 'faint' }, 'כרטיס'), h('b', null, cardLabel(t)))),
         h('div', { class: 'faint' }, [t.inst ? `תשלום ${t.inst.n} מתוך ${t.inst.of} (עסקה מלאה ${ils(t.amountOrig)})` : null, (t.notes || '').replace(/תשלום\s*\d+\s*מתוך\s*\d+/g, '').replace(/^[\s·]+|[\s·]+$/g, '')].filter(Boolean).join(' · ')),
-        p2p ? h('div', { class: 'notice info' }, 'העברה בין אנשים (BIT / PAYBOX). כדאי לרשום בהערה על מה היא.') : null,
+        p2p ? h('div', { class: 'notice info' }, 'העברה בין אנשים (BIT / PAYBOX). כדאי לרשום בהערה על מה היא.') : (t.source === 'card' && t.merchant ? h('div', null, lookup(t.merchant)) : null),
         h('label', { class: 'field' }, h('span', null, 'קטגוריה'), catSel),
         t.source === 'card' ? h('label', { class: 'check faint' }, learn, p2p
           ? `לזכור: כל העברות "${normMerchant(t.merchant)}" — גם קודמות שלא סווגו ידנית וגם עתידיות — ייכנסו לקטגוריה הזאת`
@@ -855,9 +855,12 @@
     for (const t of D().txns) {
       if (t.amount == null || t.dir === 'in' || ignoredCard(t)) continue;
       const mi = months.indexOf(monthOf(t)); if (mi < 0) continue;
+      // only spending that counts: parts() drops excluded; transfer/income categories don't count either
+      const counted = parts(t).filter((p) => { const c = catById(p.cat); return !c || c.type === 'expense'; }).reduce((n, p) => n + p.amount, 0);
+      if (!counted) continue;
       const k = cardLabel(t);
       const r = (byCard[k] = byCard[k] || { label: k, vals: months.map(() => 0), n: 0, abroad: 0, sum: 0 });
-      r.vals[mi] += t.amount; r.n++; r.sum += t.amount; if (t.abroad) r.abroad += t.amount;
+      r.vals[mi] += counted; r.n++; r.sum += counted; if (t.abroad) r.abroad += counted;
     }
     const cardRows = Object.values(byCard).sort((a, b) => b.sum - a.sum);
     const cardMonthTotals = months.map((_, i) => cardRows.reduce((n, r) => n + r.vals[i], 0));
@@ -883,7 +886,7 @@
         barChart(stats.map((s) => ({ m: s.m, label: mShort(s.m), full: mLabel(s.m), value: s.spent, budget: s.budget, cur: s.m === ui.month }))),
         h('div', { class: 'legend' }, h('span', null, h('i'), 'הוצאות'), h('span', { class: 'faint' }, 'לחיצה על עמודה או מספר מציגה את העסקאות'), stats.some((s) => s.budget) ? h('span', null, h('i', { class: 'line' }), 'תקציב') : null)),
       cardRows.length ? h('section', { class: 'card' },
-        h('div', { class: 'section-title' }, h('h2', null, 'לפי כרטיס'), h('span', { class: 'faint' }, ui.basis === 'purchase' ? 'סכום הרכישות בכל כרטיס' : 'כמה חויב בכל כרטיס — כולל העברות, כמו בדף החיוב')),
+        h('div', { class: 'section-title' }, h('h2', null, 'לפי כרטיס'), h('span', { class: 'faint' }, 'הוצאות שנספרות בלבד — בלי "לא לספור" ובלי העברות, לכן יכול להיות נמוך מדף החיוב')),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
           h('thead', null, h('tr', null, h('th', null, 'כרטיס'), shownIdx.map((i) => h('th', { class: 'n' }, mShort(months[i]))), h('th', { class: 'n' }, 'סה"כ'), h('th', { class: 'n' }, 'מהסך'), h('th', { class: 'n' }, 'עסקאות'), h('th', { class: 'n' }, 'חו"ל'))),
           h('tbody', null,
@@ -957,6 +960,7 @@
     return wrap;
   }
 
+  const lookup = (name) => h('a', { class: 'btn small', href: 'https://www.google.com/search?q=' + encodeURIComponent(String(name).replace(/[*#]/g, ' ').replace(/\s\d{3,}.*$/, '')), target: '_blank', rel: 'noopener noreferrer', title: 'חיפוש בגוגל — שם בית העסק נשלח לגוגל' }, '🔍 חפש');
   /* ---------------- quick classify: group unclassified by merchant, suggest, accept in one tap ---------------- */
   // keyword -> preferred category names (first one that exists wins; otherwise offer to create the first)
   const LEX = [
@@ -1071,7 +1075,7 @@
             h('button', { class: 'btn', onclick: () => { ui.skip.add(x.norm); render(); } }, 'דלג')),
           h('div', { class: 'row' },
             h('label', { class: 'check faint' }, remember, x.p2p ? 'לזכור גם להעברות הבאות (בדרך כלל לא כדאי)' : 'לזכור לבית העסק (ליצור חוק)'),
-            h('button', { class: 'btn small', style: 'margin-inline-start:auto', onclick: () => drill({ q: x.merchant, onlyNone: true }) }, 'פירוט')));
+            h('span', { style: 'margin-inline-start:auto; display:flex; gap:6px' }, x.p2p ? null : lookup(x.merchant), h('button', { class: 'btn small', onclick: () => drill({ q: x.merchant, onlyNone: true }) }, 'פירוט'))));
       })),
       shown.length > 80 ? h('div', { class: 'faint' }, `מוצגים 80 הראשונים מתוך ${shown.length}`) : null,
       ui.skip.size ? h('button', { class: 'btn small', onclick: () => { ui.skip.clear(); render(); } }, `הצג שוב ${ui.skip.size} שדילגת עליהם`) : null);
@@ -1103,7 +1107,9 @@
     const mine = D().rules.filter((r) => !r.auto).length;
     return h('main', { class: 'stack' },
       h('div', null, h('button', { class: 'btn small', onclick: () => setView('settings') }, '› חזרה להגדרות')),
-      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'חוקי סיווג'), h('button', { class: 'btn primary', onclick: () => openRule(null) }, '+ חוק חדש')),
+      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'חוקי סיווג'),
+        h('label', { class: 'btn' }, 'ייבוא חוקים', h('input', { type: 'file', accept: '.json,application/json', class: 'hidden', onchange: async (e) => { const f = e.target.files[0]; if (f) { try { openRulesImport(JSON.parse(await f.text())); } catch (x) { toast('קובץ לא תקין'); } } e.target.value = ''; } })),
+        h('button', { class: 'btn primary', onclick: () => openRule(null) }, '+ חוק חדש')),
       h('div', { class: 'faint' }, 'סדר הבדיקה: החוקים שלך לפני המובנים; בתוכם — חוק עם סכום לפני חוק בלי סכום, ושם מדויק לפני "מכיל". הראשון שמתאים קובע.'),
       h('div', { class: 'row' },
         h('div', { class: 'seg', role: 'group', 'aria-label': 'אילו חוקים' },
@@ -1119,6 +1125,51 @@
             h('button', { class: 'btn small', disabled: !counts.get(r.id), onclick: () => drill({ rule: r.id }) }, 'עסקאות'),
             h('button', { class: 'btn small', onclick: () => { const n = runRule(r, false); S.save(); toast(n ? `החוק עדכן ${n} עסקאות` : 'אין מה לעדכן — הכל כבר מסווג לפי החוק (או סווג ידנית / הוחרג)'); render(); } }, 'הפעל'),
             h('button', { class: 'btn small', onclick: () => openRule(r) }, 'עריכה'))))) : h('div', { class: 'empty' }, ui.rulesTab === 'mine' && !q ? 'עוד אין חוקים שלך. הם נוצרים כשמסמנים "לזכור" בעסקה, או ב"+ חוק חדש".' : 'לא נמצאו חוקים')));
+  }
+
+  // file: { app: 'kupa-rules', rules: [{ text, kind?: 'exact'|'contains', cat: '<category name>', confidence?: 'high'|'medium'|'low', note? }] }
+  function openRulesImport(file) {
+    if (!file || file.app !== 'kupa-rules' || !Array.isArray(file.rules)) return toast('זה לא קובץ חוקים של קופה');
+    const items = file.rules.filter((r) => r && r.text && r.cat).map((r) => {
+      const kind = r.kind === 'contains' ? 'contains' : 'exact';
+      const text = kind === 'exact' ? normMerchant(r.text) : String(r.text).trim();
+      const probe = { kind, text, min: '', max: '' };
+      const n = D().txns.filter((t) => ruleMatch(probe, t)).length;
+      const exists = D().rules.some((x) => !x.auto && x.kind === kind && x.text === text && !hasCond(x));
+      const on = !exists && r.cat !== 'שונות' && (r.confidence || 'high') !== 'low';
+      return { ...r, kind, text, n, exists, on };
+    });
+    sheet('ייבוא חוקים', (close) => {
+      const list = h('div', { class: 'matchlist', style: 'max-height:50vh' });
+      const count = h('b');
+      const draw = () => {
+        count.textContent = `${items.filter((x) => x.on).length} נבחרו`;
+        list.replaceChildren(...items.map((x) => h('label', { class: 'mrow imp' + (x.on ? '' : ' off') },
+          h('input', { type: 'checkbox', checked: x.on, disabled: x.exists, onchange: (e) => { x.on = e.target.checked; draw(); } }),
+          h('span', { class: 'mname' }, x.text, h('div', { class: 'faint' }, [x.note, x.exists ? 'כבר קיים' : `${x.n} עסקאות`].filter(Boolean).join(' · '))),
+          h('span', { class: 'mcat' }, x.cat + (catByName(x.cat) ? '' : ' (חדשה)')),
+          h('span', { class: 'pill' + (x.confidence === 'low' ? ' warn' : '') }, { high: 'בטוח', medium: 'סביר', low: 'ניחוש' }[x.confidence || 'high']))));
+      };
+      draw();
+      const includeManual = h('input', { type: 'checkbox', checked: false });
+      return h('div', { class: 'stack' },
+        h('div', { class: 'faint' }, 'מסומנים מראש: בטוח וסביר. "ניחוש" ו"שונות" לא מסומנים — סמן רק אם אתה מסכים. קטגוריות חסרות ייווצרו.'),
+        h('div', { class: 'row' }, count, h('div', { class: 'grow' }),
+          h('button', { class: 'btn small', onclick: () => { items.forEach((x) => { if (!x.exists) x.on = true; }); draw(); } }, 'סמן הכל'),
+          h('button', { class: 'btn small', onclick: () => { items.forEach((x) => { x.on = false; }); draw(); } }, 'נקה')),
+        list,
+        h('label', { class: 'check faint' }, includeManual, 'להחיל גם על עסקאות שסיווגתי ידנית'),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+          let made = 0, cats = 0, tx = 0;
+          for (const x of items.filter((i) => i.on)) {
+            let c = catByName(x.cat);
+            if (!c) { c = { id: uid(), name: x.cat, type: 'expense', budget: 0 }; D().categories.push(c); cats++; }
+            const r = { id: uid(), kind: x.kind, text: x.text, cat: c.id, auto: false, min: '', max: '' };
+            D().rules.unshift(r); made++; tx += runRule(r, includeManual.checked);
+          }
+          S.save(); close(); toast(`נוצרו ${made} חוקים` + (cats ? `, ${cats} קטגוריות חדשות` : '') + ` · סווגו ${tx} עסקאות`); render();
+        } }, 'ייבוא')));
+    });
   }
 
   function openRule(existing, prefill) {

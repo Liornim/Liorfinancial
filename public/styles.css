@@ -266,3 +266,7 @@ input[type=month] { border: 1px solid var(--line); background: var(--surface); b
 .qwhy { font-size: 13px; }
 .qcard.sure .qwhy { color: var(--ok); }
 .qrow { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }
+.mrow.imp { grid-template-columns: auto 1fr auto auto; cursor: pointer; }
+.mrow.imp.off { opacity: .55; }
+label.btn { display: inline-flex; align-items: center; }
+a.btn { text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; }
