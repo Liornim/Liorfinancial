@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules
+  const VERSION = '2.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '' });
   const S = window.KupaStore;
@@ -129,20 +129,35 @@
   }
 
   /* ---- rules: merchant text (exact name or "contains") + optional amount range -> category ---- */
-  const hasAmt = (r) => (r.min != null && r.min !== '') || (r.max != null && r.max !== '');
+  const set_ = (v) => v != null && v !== '';
+  const hasAmt = (r) => set_(r.min) || set_(r.max);
+  const hasDate = (r) => set_(r.mFrom) || set_(r.mTo) || set_(r.dFrom) || set_(r.dTo);
+  const hasCond = (r) => hasAmt(r) || hasDate(r);
+  function dayIn(day, from, to) { // inclusive; supports wrap-around like 28 → 3
+    const f = set_(from) ? +from : 1, t = set_(to) ? +to : 31;
+    return f <= t ? day >= f && day <= t : day >= f || day <= t;
+  }
   function ruleMatch(r, t) {
     if (!t.merchant || (t.source && t.source !== 'card')) return false; // parsed rows (import) have no source yet
     if (r.kind === 'exact') { if (normMerchant(t.merchant) !== r.text) return false; }
     else if (!t.merchant.toUpperCase().includes(String(r.text).toUpperCase())) return false;
     if (r.min != null && r.min !== '' && !(t.amount != null && t.amount >= +r.min)) return false;
     if (r.max != null && r.max !== '' && !(t.amount != null && t.amount <= +r.max)) return false;
+    if (hasDate(r)) { // by purchase date
+      const ym = (t.date || '').slice(0, 7);
+      if (set_(r.mFrom) && ym < r.mFrom) return false;
+      if (set_(r.mTo) && ym > r.mTo) return false;
+      if ((set_(r.dFrom) || set_(r.dTo)) && !dayIn(+(t.date || '').slice(8, 10), r.dFrom, r.dTo)) return false;
+    }
     return true;
   }
   // most specific first: your rules before built-in, amount rules before plain, exact name before "contains"
-  const ruleRank = (r) => (r.auto ? 100 : 0) + (hasAmt(r) ? 0 : 10) + (r.kind === 'exact' ? 0 : 1);
+  const ruleRank = (r) => (r.auto ? 100 : 0) + (hasCond(r) ? 0 : 10) + (r.kind === 'exact' ? 0 : 1);
   const rankedRules = () => D().rules.map((r, i) => [r, i]).sort((a, b) => ruleRank(a[0]) - ruleRank(b[0]) || a[1] - b[1]).map((x) => x[0]);
   const ruleById = (id) => D().rules.find((r) => r.id === id);
-  const ruleText = (r) => (r.kind === 'exact' ? `"${r.text}"` : `מכיל "${r.text}"`) + amtText(r);
+  const ruleText = (r) => (r.kind === 'exact' ? `"${r.text}"` : `מכיל "${r.text}"`) + amtText(r) + dateText(r);
+  const mm = (ym) => ym.slice(5, 7) + '/' + ym.slice(2, 4);
+  const dateText = (r) => (set_(r.mFrom) || set_(r.mTo) ? ` · חודשים ${set_(r.mFrom) ? mm(r.mFrom) : '…'}–${set_(r.mTo) ? mm(r.mTo) : '…'}` : '') + (set_(r.dFrom) || set_(r.dTo) ? ` · ימים ${set_(r.dFrom) ? r.dFrom : 1}–${set_(r.dTo) ? r.dTo : 31}` : '');
   const amtText = (r) => !hasAmt(r) ? '' : (r.min !== '' && r.min != null && r.max !== '' && r.max != null)
     ? (+r.min === +r.max ? ` · סכום ${ils(+r.min, true)}` : ` · ${ils(+r.min)}–${ils(+r.max)}`)
     : (r.min !== '' && r.min != null ? ` · מ-${ils(+r.min)}` : ` · עד ${ils(+r.max)}`);
@@ -170,7 +185,7 @@
     t.cat = cat; t.catSrc = 'manual'; t.ruleId = null; t.splits = null;
     if (!learn || t.source !== 'card' || !cat) return 0;
     const norm = normMerchant(t.merchant);
-    D().rules = D().rules.filter((r) => !(r.kind === 'exact' && r.text === norm && !hasAmt(r)));
+    D().rules = D().rules.filter((r) => !(r.kind === 'exact' && r.text === norm && !hasCond(r)));
     const r = { id: uid(), kind: 'exact', text: norm, cat, auto: false, min: '', max: '' };
     D().rules.unshift(r);
     return runRule(r, false);
@@ -982,16 +997,28 @@
       const text = h('input', { type: 'text', value: r0.text, placeholder: 'למשל: WOLT, ביטוח, PAYBOX', 'aria-label': 'בית עסק' });
       const min = h('input', { type: 'number', inputmode: 'decimal', step: 'any', value: r0.min == null ? '' : r0.min, placeholder: '—', 'aria-label': 'סכום מ' });
       const max = h('input', { type: 'number', inputmode: 'decimal', step: 'any', value: r0.max == null ? '' : r0.max, placeholder: '—', 'aria-label': 'סכום עד' });
+      const mFrom = h('input', { type: 'month', value: r0.mFrom || '', 'aria-label': 'מחודש' });
+      const mTo = h('input', { type: 'month', value: r0.mTo || '', 'aria-label': 'עד חודש' });
+      const dFrom = h('input', { type: 'number', inputmode: 'numeric', min: '1', max: '31', value: r0.dFrom == null ? '' : r0.dFrom, placeholder: '1', 'aria-label': 'מיום בחודש' });
+      const dTo = h('input', { type: 'number', inputmode: 'numeric', min: '1', max: '31', value: r0.dTo == null ? '' : r0.dTo, placeholder: '31', 'aria-label': 'עד יום בחודש' });
       const cat = catPicker({ value: r0.cat, ariaLabel: 'קטגוריה לחוק', placeholder: 'בחר קטגוריה…' });
+      const matchList = h('div', { class: 'matchlist' });
       const applyNow = h('input', { type: 'checkbox', checked: true });
       const includeManual = h('input', { type: 'checkbox', checked: false });
       const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג התאמה' });
       const preview = h('div', { class: 'notice info' });
-      const draft = () => ({ kind, text: kind === 'exact' ? normMerchant(text.value) : text.value.trim(), min: min.value === '' ? '' : +min.value, max: max.value === '' ? '' : +max.value, cat: cat.value || null, auto: false });
+      const day = (el) => (el.value === '' ? '' : Math.max(1, Math.min(31, Math.round(+el.value))));
+      const draft = () => ({ kind, text: kind === 'exact' ? normMerchant(text.value) : text.value.trim(), min: min.value === '' ? '' : +min.value, max: max.value === '' ? '' : +max.value, mFrom: mFrom.value || '', mTo: mTo.value || '', dFrom: day(dFrom), dTo: day(dTo), cat: cat.value || null, auto: false });
       const upd = () => {
         const d = draft();
-        if (!d.text) { preview.textContent = 'כתוב שם בית עסק (או חלק ממנו).'; return; }
-        const m = D().txns.filter((t) => ruleMatch(d, t));
+        if (!d.text) { preview.textContent = 'כתוב שם בית עסק (או חלק ממנו).'; matchList.replaceChildren(); return; }
+        const m = D().txns.filter((t) => ruleMatch(d, t)).sort((a, b) => b.date.localeCompare(a.date));
+        matchList.replaceChildren(...m.slice(0, 60).map((t) => h('div', { class: 'mrow' + (d.cat && t.cat !== d.cat ? ' diff' : '') },
+          h('span', { class: 'num' }, dShort(t.date) + '.' + t.date.slice(2, 4)),
+          h('span', { class: 'mname' }, t.merchant),
+          h('span', { class: 'mcat' }, t.noAuto ? '🔒 ' : t.catSrc === 'manual' ? '✎ ' : '', catName(t.cat)),
+          h('b', { class: 'amt' }, ils(t.amount || 0)))),
+          m.length > 60 ? h('div', { class: 'faint', style: 'padding:6px' }, `ועוד ${m.length - 60} — "הצג עסקאות" לרשימה המלאה`) : null);
         const other = m.filter((t) => d.cat && t.cat !== d.cat);
         const manual = other.filter((t) => t.catSrc === 'manual').length, locked = other.filter((t) => t.noAuto).length;
         const names = [...new Set(m.map((t) => t.merchant))];
@@ -1001,13 +1028,14 @@
       };
       const drawSeg = () => seg.replaceChildren(...[['contains', 'מכיל'], ['exact', 'שם מדויק']].map(([k, v]) => h('button', { type: 'button', 'aria-pressed': kind === k ? 'true' : 'false', onclick: () => { kind = k; drawSeg(); upd(); } }, v)));
       drawSeg();
-      [text, min, max].forEach((el) => el.addEventListener('input', upd)); cat.addEventListener('change', upd);
+      [text, min, max, mFrom, mTo, dFrom, dTo].forEach((el) => el.addEventListener('input', upd)); cat.addEventListener('change', upd);
       upd();
       const save = () => {
         const d = draft();
         if (!d.text) return toast('צריך בית עסק');
         if (!d.cat) return toast('צריך קטגוריה');
         if (d.min !== '' && d.max !== '' && d.min > d.max) return toast('"מ-" גדול מ"עד"');
+        if (d.mFrom && d.mTo && d.mFrom > d.mTo) return toast('חודש ההתחלה אחרי חודש הסיום');
         let r = existing;
         if (r) Object.assign(r, d); else { r = { id: uid(), ...d }; D().rules.unshift(r); }
         const n = applyNow.checked ? runRule(r, includeManual.checked) : 0;
@@ -1018,8 +1046,16 @@
         seg,
         h('div', { class: 'fields' }, h('label', { class: 'field' }, h('span', null, 'סכום מ-₪ (לא חובה)'), min), h('label', { class: 'field' }, h('span', null, 'עד ₪ (לא חובה)'), max)),
         h('div', { class: 'faint' }, 'לסכום מדויק כתוב אותו מספר בשני השדות. לדוגמה: PAYBOX מ-4600 עד 4600 → חיסכון.'),
+        h('details', { class: 'ruledates', open: !!(r0.mFrom || r0.mTo || r0.dFrom || r0.dTo) || null },
+          h('summary', null, 'תאריכים (לא חובה) — לפי תאריך העסקה'),
+          h('div', { class: 'stack', style: 'margin-top:8px' },
+            h('div', { class: 'fields' }, h('label', { class: 'field' }, h('span', null, 'מחודש'), mFrom), h('label', { class: 'field' }, h('span', null, 'עד חודש'), mTo)),
+            h('div', { class: 'fields' }, h('label', { class: 'field' }, h('span', null, 'מיום בחודש'), dFrom), h('label', { class: 'field' }, h('span', null, 'עד יום בחודש'), dTo)),
+            h('div', { class: 'faint' }, 'טווח הימים חל על כל חודש בטווח. לדוגמה ימים 5–11: רק עסקאות שבוצעו בין ה-5 ל-11 בכל חודש. אפשר גם 28–3 (סוף חודש ותחילת הבא). בלי "עד חודש" — החוק ימשיך לחול גם על חודשים עתידיים.'))),
         h('label', { class: 'field' }, h('span', null, 'קטגוריה'), cat),
         preview,
+        h('div', { class: 'faint' }, 'העסקאות שהחוק תופס (✎ = סווג ידנית, 🔒 = מוחרג מסיווג אוטומטי, מסומן = בקטגוריה אחרת):'),
+        matchList,
         h('label', { class: 'check' }, applyNow, 'להחיל עכשיו על עסקאות קיימות'),
         h('label', { class: 'check faint' }, includeManual, 'כולל עסקאות שסיווגתי ידנית (עסקאות שהוחרגו מסיווג אוטומטי לא ישתנו אף פעם)'),
         h('div', { class: 'row' },

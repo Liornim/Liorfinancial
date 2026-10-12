@@ -244,3 +244,14 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 /* room to scroll the last button out from under the floating "+" */
 @media (max-width: 759px) { .shell { padding-bottom: calc(150px + env(safe-area-inset-bottom)); } }
 .sortsel { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+
+.matchlist { max-height: 34vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.matchlist:empty { display: none; }
+.mrow { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.mrow:last-child { border-bottom: 0; }
+.mrow .mname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow .mcat { color: var(--ink-3); font-size: 12px; white-space: nowrap; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
+.mrow.diff { background: var(--warn-soft); }
+.mrow .num { color: var(--ink-3); }
+.ruledates summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+input[type=month] { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; min-height: 40px; width: 100%; }
