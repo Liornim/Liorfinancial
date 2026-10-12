@@ -1,6 +1,8 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
+  const VERSION = '1.3'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label
+  const VERSION_DATE = '12.10.26';
   const S = window.KupaStore;
   const P = window.KupaParsers;
   const $app = document.getElementById('app');
@@ -237,7 +239,7 @@
     return h('div', null,
       h('div', { class: 'shell' },
         h('header', { class: 'topbar' },
-          h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), 'קופה'),
+          h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), 'קופה', h('span', { class: 'ver', title: 'עודכן ' + VERSION_DATE }, 'v' + VERSION)),
           h('nav', { class: 'tabs', 'aria-label': 'ניווט' }, tabs.map(([v, label, ic]) => h('button', { 'aria-current': ui.view === v ? 'page' : null, onclick: () => setView(v) }, icon(ic), label))),
           h('div', { class: 'spacer' }), syncLabel,
           h('button', { class: 'icon-btn', title: 'נעילה', 'aria-label': 'נעילה', onclick: lockNow }, icon('lock'))),
@@ -805,7 +807,7 @@
           err.textContent = x.status === 401 ? `סיסמה שגויה (נותרו ${x.body && x.body.left} ניסיונות בשעה הקרובה)` : x.status === 429 ? 'יותר מדי ניסיונות. הכניסה נעולה לשעה.' : 'שגיאה: ' + x.message;
           pw.select();
         } } }, h('label', { class: 'field' }, h('span', null, 'סיסמה'), pw), err, btn);
-      $app.replaceChildren(h('div', { class: 'lock' }, h('div', { class: 'card stack' }, h('h1', null, h('img', { src: 'icon.svg', alt: '' }), 'קופה'), form)));
+      $app.replaceChildren(h('div', { class: 'lock' }, h('div', { class: 'card stack' }, h('h1', null, h('img', { src: 'icon.svg', alt: '' }), 'קופה', h('span', { class: 'ver' }, 'v' + VERSION)), form)));
       pw.focus();
       return;
     }
@@ -830,7 +832,7 @@
     meta.needsSetupCode ? h('label', { class: 'field' }, h('span', null, 'קוד התקנה'), code) : null,
     h('label', { class: 'check' }, ack, 'הבנתי: אם אשכח את הסיסמה, הנתונים אבודים.'),
     err, btn);
-    $app.replaceChildren(h('div', { class: 'lock' }, h('div', { class: 'card stack' }, h('h1', null, h('img', { src: 'icon.svg', alt: '' }), 'קופה — הגדרה ראשונה'), form)));
+    $app.replaceChildren(h('div', { class: 'lock' }, h('div', { class: 'card stack' }, h('h1', null, h('img', { src: 'icon.svg', alt: '' }), 'קופה — הגדרה ראשונה', h('span', { class: 'ver' }, 'v' + VERSION)), form)));
   }
 
   /* ---------------- session ---------------- */
