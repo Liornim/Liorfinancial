@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions
+  const VERSION = '2.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '' });
   const S = window.KupaStore;
@@ -92,7 +92,7 @@
       ...['אלקטרוניקה', 'KSP', 'באג ', 'IVORY', 'איבורי', 'BEST BUY'].map((t) => R(t, 'אלקטרוניקה')),
       ...['אל על', 'ELAL', 'EL AL', 'ISRAIR', 'ישראייר', 'ארקיע', 'AIRBNB', 'BOOKING', 'HOTEL', 'EXPEDIA', ' INN', 'SUITES', 'MARRIOTT', 'HILTON', 'HYATT', 'AIRLINES', 'UNITED AIR', 'DELTA AIR', 'ALASKA AIR', 'HERTZ', 'AVIS', 'ENTERPRISE RENT', 'TURO', 'DUTY FREE'].map((t) => R(t, 'חו"ל ונסיעות')),
       ...['משרד התחבורה', 'רשות המסים', 'עירית', 'עיריית', 'ביטוח לאומי', 'משרד הפנים'].map((t) => R(t, 'אגרות וממשלה')),
-      ...['ZARA', 'H&M', 'קסטרו', 'פוקס', 'FOX', 'NIKE', 'ADIDAS', 'TERMINAL X', 'טרמינל'].map((t) => R(t, 'ביגוד והנעלה')),
+      ...['ZARA', 'H&M', 'קסטרו', 'פוקס', 'FOX', 'NIKE', 'ADIDAS', 'TERMINAL X', 'טרמינל X'].map((t) => R(t, 'ביגוד והנעלה')),
       ...['מכבי', 'כללית', 'מאוחדת', 'לאומית', 'רופא', 'מרפאה'].map((t) => R(t, 'בריאות')),
     ];
     const sectors = { 'אנרגיה': id('רכב ודלק'), 'פנאי בילוי': id('פנאי ובילוי'), 'מוצרי חשמל': id('אלקטרוניקה'), 'מוסדות': id('אגרות וממשלה'), 'מזון': id('סופר ומכולת'), 'מסעדות': id('אוכל בחוץ ומשלוחים'), 'תקשורת': id('מנויים ותקשורת'), 'ביגוד': id('ביגוד והנעלה'), 'רפואה': id('בריאות'), 'תיירות': id('חו"ל ונסיעות'), 'תחבורה': id('תחבורה ומוניות'), 'רכב': id('רכב ודלק') };
@@ -939,6 +939,18 @@
       .filter((r) => !q || String(r.text).toUpperCase().includes(q) || catName(r.cat).toUpperCase().includes(q));
     const counts = new Map(); const by = new Map();
     for (const r of rows) { let n = 0, sum = 0; for (const t of D().txns) if (ruleMatch(r, t)) { n++; sum += t.amount || 0; } counts.set(r.id, n); by.set(r.id, sum); }
+    ui.rulesSort = ui.rulesSort || 'priority';
+    const RS = {
+      priority: ['סדר הבדיקה', null],
+      'count-desc': ['כמות עסקאות: הכי הרבה', (a, b) => counts.get(b.id) - counts.get(a.id)],
+      'count-asc': ['כמות עסקאות: הכי מעט', (a, b) => counts.get(a.id) - counts.get(b.id)],
+      'sum-desc': ['סכום: הכי גבוה', (a, b) => by.get(b.id) - by.get(a.id)],
+      'name-asc': ['שם: א → ת', (a, b) => heCmp(String(a.text), String(b.text))],
+      'cat-asc': ['קטגוריה: א → ת', (a, b) => heCmp(catName(a.cat), catName(b.cat))],
+    };
+    if (RS[ui.rulesSort] && RS[ui.rulesSort][1]) rows.sort((a, b) => RS[ui.rulesSort][1](a, b) || heCmp(String(a.text), String(b.text)));
+    const sortSel = h('select', { class: 'sortsel', 'aria-label': 'מיון חוקים', onchange: (e) => { ui.rulesSort = e.target.value; render(); } },
+      Object.entries(RS).map(([k, v]) => h('option', { value: k, selected: ui.rulesSort === k }, '↕ ' + v[0])));
     let qT;
     const search = h('input', { type: 'search', placeholder: 'חיפוש לפי בית עסק או קטגוריה', value: ui.rulesQ, 'aria-label': 'חיפוש חוק',
       oninput: (e) => { clearTimeout(qT); const v = e.target.value; qT = setTimeout(() => { ui.rulesQ = v; render(); const el = document.querySelector('input[aria-label="חיפוש חוק"]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); } });
@@ -950,7 +962,8 @@
       h('div', { class: 'row' },
         h('div', { class: 'seg', role: 'group', 'aria-label': 'אילו חוקים' },
           [['mine', `שלי (${mine})`], ['builtin', `מובנים (${D().rules.length - mine})`], ['all', 'הכל']].map(([k, v]) => h('button', { 'aria-pressed': ui.rulesTab === k ? 'true' : 'false', onclick: () => { ui.rulesTab = k; render(); } }, v))),
-        h('div', { class: 'grow', style: 'min-width:180px' }, search)),
+        h('div', { class: 'grow', style: 'min-width:180px' }, search),
+        sortSel),
       h('section', { class: 'card', style: 'padding:4px 12px' },
         rows.length ? h('div', { class: 'rulelist' }, rows.map((r) => h('div', { class: 'rule' },
           h('div', { class: 'rmain', role: 'button', tabindex: 0, onclick: () => openRule(r) },
@@ -1221,6 +1234,15 @@
     if (!d.settings.lockV) { d.settings.autoLockMin = 3; d.settings.lockV = 2; S.save(); } // one-time: new default 3 min
     (d.rules || []).forEach((r) => { if (r.min === undefined) r.min = ''; if (r.max === undefined) r.max = ''; });
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
+    if (!d.settings.mig25) { // built-in 'טרמינל' caught 'היינמן טרמינל' (airport) as clothing
+      const bad = (d.rules || []).filter((r) => r.auto && r.text === 'טרמינל');
+      if (bad.length) {
+        const ids = new Set(bad.map((r) => r.id));
+        d.rules = d.rules.filter((r) => !ids.has(r.id));
+        for (const t of d.txns) if (t.catSrc === 'rule' && !t.noAuto && (ids.has(t.ruleId) || (!t.ruleId && /טרמינל/.test(t.merchant || '') && !/TERMINAL X|טרמינל X/i.test(t.merchant)))) { const c = classify(t); t.cat = c.cat; t.catSrc = c.src; t.ruleId = c.ruleId; }
+      }
+      d.settings.mig25 = true; S.save();
+    }
   }
 
   S.onStatus(onSync);
