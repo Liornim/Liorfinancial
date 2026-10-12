@@ -1,8 +1,9 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format
+  const VERSION = '1.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down
   const VERSION_DATE = '12.10.26';
+  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
   const P = window.KupaParsers;
   const $app = document.getElementById('app');
@@ -229,9 +230,18 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { view: 'month', month: thisMonth(), f: { q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false }, reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
-  function setView(v, patch) { ui.view = v; if (patch) Object.assign(ui, patch); render(); window.scrollTo(0, 0); }
+  function setView(v, patch, keepBack) {
+    if (!keepBack) ui.back = null;
+    if (ui.view !== v) { try { history.pushState({ v }, ''); } catch (e) { /* ignore */ } }
+    ui.view = v; if (patch) Object.assign(ui, patch);
+    try { sessionStorage.setItem('kupa-view', v); } catch (e) { /* ignore */ }
+    render(); window.scrollTo(0, 0);
+  }
+  // drill-down: jump to transactions with exactly this filter, remembering where we came from
+  function drill(f) { const from = ui.view; ui.selMode = false; ui.sel.clear(); setView('txns', { f: { ...EMPTY_F(), ...f }, back: from }, true); }
+  window.addEventListener('popstate', (e) => { if (!S.data) return; ui.view = (e.state && e.state.v) || 'month'; ui.back = null; render(); });
 
   const syncLabel = h('span', { class: 'sync' }, '');
   function onSync(st, e) {
@@ -273,7 +283,7 @@
     const rows = cats.map(({ c, spent, budget }) => {
       const over = budget > 0 && spent > budget;
       const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent / max) * 100;
-      return h('div', { class: 'brow' + (budget ? '' : ' nobudget'), role: 'button', tabindex: 0, onclick: () => setView('txns', { f: { ...ui.f, cat: c.id, month: m, q: '', onlyNone: false } }) },
+      return h('div', { class: 'brow' + (budget ? '' : ' nobudget'), role: 'button', tabindex: 0, onclick: () => drill({ cat: c.id, month: m }) },
         h('div', { class: 'name' }, c.name),
         h('div', { class: 'figs' }, h('b', null, amt(spent)), budget ? [' / ', amt(budget)] : h('span', { class: 'faint' }, ' · ללא תקציב'),
           over ? h('div', { class: 'tag-over' }, 'חריגה ', amt(spent - budget)) : budget ? h('div', { class: 'faint' }, Math.round((spent / budget) * 100) + '% · נותרו ', amt(budget - spent)) : null),
@@ -296,7 +306,7 @@
         kpi('תקציב', st.budget ? amt(st.budget) : h('button', { class: 'value', onclick: () => setView('settings') }, 'להגדרה ›')),
         kpi(left >= 0 ? 'נותר' : 'חריגה', amt(Math.abs(left)), st.budget && left < 0 ? 'over' : ''),
         kpi('הכנסות', amt(st.income))),
-      st.unclassified ? h('div', { class: 'notice', role: 'button', tabindex: 0, onclick: () => setView('txns', { f: { q: '', cat: '', card: '', month: m, onlyNone: true } }) },
+      st.unclassified ? h('div', { class: 'notice', role: 'button', tabindex: 0, onclick: () => drill({ month: m, onlyNone: true }) },
         `${st.unclassified} עסקאות לסיווג (`, amt(st.unclassifiedSum), ') — לחץ לסיווג ›') : null,
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'תקציב מול ביצוע'), h('span', { class: 'faint' }, 'לחיצה על קטגוריה מציגה את העסקאות')),
@@ -309,6 +319,7 @@
           h('thead', null, h('tr', null, h('th', null, 'חודש'), h('th', null, 'סכום'), h('th', null, 'עסקאות'))),
           h('tbody', null, future.map((f) => h('tr', null, h('td', null, mLabel(f.month)), h('td', { class: 'n' }, amt(f.sum)), h('td', { class: 'faint' }, f.items.join(', ')))))))) : null);
   }
+  const kpiLink = (label, value, f) => h('button', { class: 'kpi kpi-link', onclick: () => drill(f) }, h('div', { class: 'label' }, label + ' ›'), h('div', { class: 'value' }, value));
   const kpi = (label, value, cls) => h('div', { class: 'kpi ' + (cls || '') }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value));
 
   function upcomingInstallments(fromMonth) {
@@ -339,6 +350,7 @@
       if (f.month && monthOf(t) !== f.month) return false;
       if (f.card && cardLabel(t) !== f.card) return false;
       if (f.abroad && !t.abroad) return false;
+      if (f.standing && !t.standing) return false;
       if (f.onlyNone && (t.cat || (t.splits && t.splits.length) || t.excluded)) return false;
       if (f.cat) {
         if (f.cat === '_none') { if (t.cat || (t.splits && t.splits.length)) return false; }
@@ -360,6 +372,7 @@
       oninput: (e) => { clearTimeout(qTimer); const v = e.target.value; qTimer = setTimeout(() => { ui.f.q = v; render(); const el = document.querySelector('input[type=search]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); } });
 
     return h('main', { class: 'stack' },
+      ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה ל' + ({ reports: 'דוחות', month: 'חודש' }[ui.back] || 'קודם'))) : null,
       h('div', { class: 'filters' },
         search,
         h('select', { 'aria-label': 'חודש', onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m)))),
@@ -369,7 +382,8 @@
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.onlyNone, onchange: (e) => upd('onlyNone', e.target.checked) }), 'רק לסיווג'),
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל'))),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
-        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad) ? h('button', { class: 'btn small', onclick: () => { ui.f = { q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false }; render(); } }, 'ניקוי סינון') : null,
+        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad || ui.f.standing) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
+        ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
         h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), style: 'margin-inline-start:auto', onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
       h('section', { class: 'card', style: 'padding:4px 12px' },
         list.length ? h('div', { class: 'txlist' }, list.slice(0, 500).map(txRow)) : h('div', { class: 'empty' }, 'אין עסקאות שמתאימות לסינון'),
@@ -465,6 +479,7 @@
   }
 
   // any category <select> offering "+ new": remember the previous value, intercept "__new"
+  document.addEventListener('change', (e) => { if (!S.data && !e.target.closest('.lock')) e.stopImmediatePropagation(); }, true);
   document.addEventListener('focusin', (e) => { if (e.target.tagName === 'SELECT') e.target.dataset.prev = e.target.value; }, true);
   document.addEventListener('change', (e) => {
     const el = e.target;
@@ -678,6 +693,7 @@
     ui.cmpB = ui.cmpB || end; ui.cmpA = ui.cmpA || addMonths(ui.cmpB, -1);
     const A = monthStats(ui.cmpA), B = monthStats(ui.cmpB);
     const cmpRows = cats.map((c) => ({ c, a: A.byCat[c.id] || 0, b: B.byCat[c.id] || 0 })).filter((r) => r.a || r.b).sort((x, y) => Math.abs(y.b - y.a) - Math.abs(x.b - x.a));
+    const dc = (f, cls, style, ...kids) => h('td', { class: (cls || '') + ' drill', style, role: 'link', tabindex: 0, title: 'הצג עסקאות', onclick: () => drill(f), onkeydown: (e) => { if (e.key === 'Enter') drill(f); } }, ...kids);
     const monthOpts = (sel) => all.slice().reverse().map((m) => h('option', { value: m, selected: m === sel }, mLabel(m)));
 
     return h('main', { class: 'stack' },
@@ -685,16 +701,16 @@
         h('div', { class: 'seg', role: 'group', 'aria-label': 'טווח' }, [3, 6, 12, 24].map((n) => h('button', { 'aria-pressed': ui.reportRange === n ? 'true' : 'false', onclick: () => { ui.reportRange = n; render(); } }, n + ' ח׳')))),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'הוצאות לפי חודש'), h('span', { class: 'faint' }, `ממוצע (${active} ח׳ עם נתונים) `, amt(stats.reduce((n, s) => n + s.spent, 0) / active))),
-        barChart(stats.map((s) => ({ label: mShort(s.m), full: mLabel(s.m), value: s.spent, budget: s.budget, cur: s.m === ui.month }))),
-        h('div', { class: 'legend' }, h('span', null, h('i'), 'הוצאות'), stats.some((s) => s.budget) ? h('span', null, h('i', { class: 'line' }), 'תקציב') : null)),
+        barChart(stats.map((s) => ({ m: s.m, label: mShort(s.m), full: mLabel(s.m), value: s.spent, budget: s.budget, cur: s.m === ui.month }))),
+        h('div', { class: 'legend' }, h('span', null, h('i'), 'הוצאות'), h('span', { class: 'faint' }, 'לחיצה על עמודה או מספר מציגה את העסקאות'), stats.some((s) => s.budget) ? h('span', null, h('i', { class: 'line' }), 'תקציב') : null)),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות לאורך זמן'), h('span', { class: 'faint' }, 'כהה יותר = יותר כסף')),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
           h('thead', null, h('tr', null, h('th', null, 'קטגוריה'), months.map((m) => h('th', { class: 'n' }, mShort(m))), h('th', { class: 'n' }, 'ממוצע'))),
           h('tbody', null,
-            catRows.map((r) => h('tr', null, h('td', null, r.c.name), r.vals.map((v) => h('td', { class: 'n', style: v ? `background: color-mix(in srgb, var(--bar) ${Math.round((v / maxCell) * 55)}%, transparent)` : '' }, v ? nf0.format(v) : '·')), h('td', { class: 'n' }, h('b', null, nf0.format(r.avg))))),
-            noneVals.some(Boolean) ? h('tr', null, h('td', { class: 'faint' }, 'לסיווג'), noneVals.map((v) => h('td', { class: 'n faint' }, v ? nf0.format(v) : '·')), h('td', null)) : null,
-            h('tr', { class: 'total' }, h('td', null, 'סה"כ'), stats.map((s) => h('td', { class: 'n' }, nf0.format(s.spent))), h('td', { class: 'n' }, nf0.format(stats.reduce((n, s) => n + s.spent, 0) / active))))))),
+            catRows.map((r) => h('tr', null, dc({ cat: r.c.id }, '', null, r.c.name), r.vals.map((v, i) => v ? dc({ cat: r.c.id, month: months[i] }, 'n', `background: color-mix(in srgb, var(--bar) ${Math.round((v / maxCell) * 55)}%, transparent)`, nf0.format(v)) : h('td', { class: 'n' }, '·')), h('td', { class: 'n' }, h('b', null, nf0.format(r.avg))))),
+            noneVals.some(Boolean) ? h('tr', null, dc({ cat: '_none' }, 'faint', null, 'לסיווג'), noneVals.map((v, i) => v ? dc({ cat: '_none', month: months[i] }, 'n faint', null, nf0.format(v)) : h('td', { class: 'n faint' }, '·')), h('td', null)) : null,
+            h('tr', { class: 'total' }, h('td', null, 'סה"כ'), stats.map((s) => s.spent ? dc({ month: s.m }, 'n', null, nf0.format(s.spent)) : h('td', { class: 'n' }, '0')), h('td', { class: 'n' }, nf0.format(stats.reduce((n, s) => n + s.spent, 0) / active))))))),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'השוואת חודשים')),
         h('div', { class: 'fields', style: 'margin-bottom:10px' },
@@ -702,20 +718,22 @@
           h('select', { 'aria-label': 'חודש ב', onchange: (e) => { ui.cmpB = e.target.value; render(); } }, monthOpts(ui.cmpB))),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
           h('thead', null, h('tr', null, h('th', null, 'קטגוריה'), h('th', { class: 'n' }, mShort(ui.cmpA)), h('th', { class: 'n' }, mShort(ui.cmpB)), h('th', { class: 'n' }, 'שינוי'))),
-          h('tbody', null, cmpRows.map((r) => diffRow(r.c.name, r.a, r.b)), diffRow('סה"כ', A.spent, B.spent, true))))),
+          h('tbody', null, cmpRows.map((r) => diffRow(r.c.name, r.a, r.b, false, dc, r.c.id)), diffRow('סה"כ', A.spent, B.spent, true, dc, null))))),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'בתי העסק הגדולים'), h('span', { class: 'faint' }, `${ui.reportRange} חודשים`)),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
           h('thead', null, h('tr', null, h('th', null, 'בית עסק'), h('th', { class: 'n' }, 'עסקאות'), h('th', { class: 'n' }, 'סה"כ'), h('th', { class: 'n' }, 'מהסך'))),
-          h('tbody', null, top.map((m) => h('tr', null, h('td', null, m.name), h('td', { class: 'n' }, m.n), h('td', { class: 'n' }, amt(m.sum)), h('td', { class: 'n faint' }, totalRange ? Math.round((m.sum / totalRange) * 100) + '%' : ''))))))),
+          h('tbody', null, top.map((m) => h('tr', null, dc({ q: m.name }, '', null, m.name), h('td', { class: 'n' }, m.n), dc({ q: m.name }, 'n', null, amt(m.sum)), h('td', { class: 'n faint' }, totalRange ? Math.round((m.sum / totalRange) * 100) + '%' : ''))))))),
       h('div', { class: 'kpis' },
-        kpi('חו"ל', amt(abroad)), kpi('חו"ל מהסך', totalRange ? Math.round((abroad / totalRange) * 100) + '%' : '—'),
-        kpi('הוראות קבע', amt(standing)), kpi('ממוצע חודשי', amt(totalRange / active))));
+        kpiLink('חו"ל', amt(abroad), { abroad: true }), kpi('חו"ל מהסך', totalRange ? Math.round((abroad / totalRange) * 100) + '%' : '—'),
+        kpiLink('הוראות קבע', amt(standing), { standing: true }), kpi('ממוצע חודשי', amt(totalRange / active))));
   }
 
-  function diffRow(name, a, b, total) {
+  function diffRow(name, a, b, total, dc, catId) {
     const d = b - a; const pct = a ? Math.round((d / a) * 100) : null;
-    return h('tr', { class: total ? 'total' : '' }, h('td', null, name), h('td', { class: 'n' }, nf0.format(a)), h('td', { class: 'n' }, nf0.format(b)),
+    const f = (m) => (catId ? { cat: catId, month: m } : { month: m });
+    return h('tr', { class: total ? 'total' : '' }, catId ? dc({ cat: catId }, '', null, name) : h('td', null, name),
+      a ? dc(f(ui.cmpA), 'n', null, nf0.format(a)) : h('td', { class: 'n' }, '0'), b ? dc(f(ui.cmpB), 'n', null, nf0.format(b)) : h('td', { class: 'n' }, '0'),
       h('td', { class: 'n ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') }, h('span', { class: 'amt' }, (d > 0 ? '+' : d < 0 ? '−' : '') + nf0.format(Math.abs(d))), pct != null && d ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''));
   }
 
@@ -742,7 +760,7 @@
     svg.querySelectorAll('rect.hit').forEach((r, i) => {
       const show = () => { const d = data[i]; tip.textContent = `${d.full}: ${ils(d.value)}${d.budget ? ' · תקציב ' + ils(d.budget) : ''}`; tip.classList.remove('hidden');
         const box = svg.getBoundingClientRect(); const sx = box.width / W; tip.style.left = ((x(i) + bw / 2) * sx - tip.offsetWidth / 2) + 'px'; tip.style.top = (y(Math.max(d.value, d.budget || 0)) * sx) + 'px'; tip.style.transform = 'translate(0,-110%)'; };
-      r.addEventListener('mouseenter', show); r.addEventListener('click', show); r.addEventListener('mouseleave', () => tip.classList.add('hidden'));
+      r.addEventListener('mouseenter', show); r.addEventListener('click', () => { if (data[i].value) drill({ month: data[i].m }); }); r.addEventListener('mouseleave', () => tip.classList.add('hidden'));
     });
     wrap.append(svg, tip);
     return wrap;
@@ -800,7 +818,7 @@
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: D().settings.instByBilling, onchange: (e) => { D().settings.instByBilling = e.target.checked; S.save(); } }),
           'עסקת תשלומים נספרת לפי חודש החיוב (כבוי = לפי חודש הרכישה)'),
         h('label', { class: 'field', style: 'max-width:240px' }, h('span', null, 'נעילה אוטומטית אחרי (דקות)'),
-          h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 3)); S.save(); resetIdle(); } }))),
+          h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { if (!S.data) return; D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 3)); S.save(); lastTouch = 0; resetIdle(); } }))),
       cardEntries.length ? h('section', { class: 'card stack' }, h('h2', null, 'כרטיסים'),
         h('div', { class: 'fields' }, cardEntries.map(([num, c]) => h('label', { class: 'field' }, h('span', null, 'מסתיים ב-' + num),
           h('input', { type: 'text', value: c.label, onchange: (e) => { c.label = e.target.value.trim() || c.label; S.save(); } }))))) : null,
@@ -912,18 +930,23 @@
   function resetIdle() {
     clearTimeout(idleTimer);
     if (!S.data) return;
-    idleTimer = setTimeout(() => lockNow('ננעל אחרי חוסר פעילות'), (D().settings.autoLockMin || 3) * 60000);
+    const min = D().settings.autoLockMin || 3;
+    idleTimer = setTimeout(() => lockNow('ננעל אחרי חוסר פעילות'), min * 60000);
+    const n = Date.now(); if (n - lastTouch > 10000) { lastTouch = n; S.touch(min); } // persist "last activity" so a refresh keeps the session
   }
+  let lastTouch = 0;
   async function lockNow(msg) {
     if (S.dirty) { try { await S.flush(); } catch (e) { /* ignore */ } }
-    S.lock(); pendingImports = []; clearTimeout(idleTimer);
+    await S.lock(); pendingImports = []; clearTimeout(idleTimer); lastTouch = 0;
+    try { sessionStorage.removeItem('kupa-view'); } catch (e) { /* ignore */ }
     document.querySelectorAll('.scrim, .toast').forEach((e) => e.remove());
     lockScreen(typeof msg === 'string' ? msg : '');
   }
-  function startApp() {
+  function startApp(view) {
     migrate();
-    ui.month = thisMonth(); ui.view = 'month';
-    render(); resetIdle();
+    ui.month = thisMonth(); ui.view = view || 'month';
+    try { history.replaceState({ v: ui.view }, ''); } catch (e) { /* ignore */ }
+    render(); lastTouch = 0; resetIdle();
   }
   function migrate() {
     const d = D();
@@ -937,10 +960,16 @@
   ['pointerdown', 'keydown', 'scroll', 'touchstart', 'wheel'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
   document.addEventListener('pointermove', () => { const n = Date.now(); if (n - lastMove > 5000) { lastMove = n; resetIdle(); } }, { passive: true });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { hiddenAt = Date.now(); if (S.dirty) S.flush(); }
+    if (document.hidden) { hiddenAt = Date.now(); if (S.dirty) S.flush(); if (S.data) S.touch(D().settings.autoLockMin || 3); }
     else if (S.data && hiddenAt && Date.now() - hiddenAt > (D().settings.autoLockMin || 3) * 60000) lockNow('ננעל אחרי חוסר פעילות');
   });
   window.addEventListener('beforeunload', (e) => { if (S.dirty) { S.flush(); e.preventDefault(); e.returnValue = ''; } });
 
-  lockScreen();
+  (async () => {
+    // refresh within the idle window: continue without the password
+    if (await S.resume()) {
+      let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
+      startApp(['month', 'txns', 'import', 'reports', 'settings'].includes(v) ? v : 'month');
+    } else lockScreen();
+  })();
 })();

@@ -52,6 +52,42 @@
     return body;
   }
 
+  /* Session: survives a page refresh, dies after N idle minutes.
+     The AES key is stored as a NON-extractable CryptoKey in IndexedDB (script can use it, nobody can read its bytes);
+     the auth key is stored encrypted with that AES key. Locking deletes the record. */
+  const Session = {
+    db() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open('kupa-session', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('s');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+    },
+    async op(mode, fn) {
+      const db = await this.db();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('s', mode); const st = tx.objectStore('s');
+        const req = fn(st); tx.oncomplete = () => { db.close(); res(req && req.result); }; tx.onerror = () => { db.close(); rej(tx.error); };
+      });
+    },
+    async save(keys, minutes) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const authCt = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, keys.aes, enc.encode(keys.auth)));
+      await this.op('readwrite', (st) => st.put({ aes: keys.aes, iv, authCt, last: Date.now(), min: minutes }, 'cur'));
+    },
+    async touch(minutes) {
+      await this.op('readwrite', (st) => { const g = st.get('cur'); g.onsuccess = () => { if (g.result) st.put({ ...g.result, last: Date.now(), min: minutes || g.result.min }, 'cur'); }; return g; });
+    },
+    async load() {
+      const rec = await this.op('readonly', (st) => st.get('cur'));
+      if (!rec) return null;
+      if (Date.now() - rec.last > rec.min * 60000) { await this.clear(); return null; }
+      const auth = dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: rec.iv }, rec.aes, rec.authCt));
+      return { aes: rec.aes, auth };
+    },
+    async clear() { try { await this.op('readwrite', (st) => st.delete('cur')); } catch (e) { /* ignore */ } },
+  };
+
   const Store = {
     keys: null, version: 0, data: null,
     saving: false, dirty: false, timer: null, listeners: [],
@@ -65,6 +101,7 @@
       const authHash = hex(await crypto.subtle.digest('SHA-256', enc.encode(keys.auth)));
       const r = await api('/api/init', { method: 'POST', body: JSON.stringify({ salt, iter: ITER, authHash, blob, setupCode }) });
       this.keys = keys; this.version = r.version; this.data = initialData;
+      try { await Session.save(keys, 3); } catch (e) { /* ignore */ }
     },
 
     async unlock(password) {
@@ -73,7 +110,20 @@
       const r = await api('/api/data', {}, keys.auth);
       this.data = await decrypt(keys.aes, r.blob);
       this.keys = keys; this.version = r.version;
+      try { await Session.save(keys, (this.data.settings && this.data.settings.autoLockMin) || 3); } catch (e) { /* refresh will ask for password */ }
     },
+
+    async resume() { // after a refresh, within the idle window
+      let keys = null;
+      try { keys = await Session.load(); } catch (e) { keys = null; }
+      if (!keys) return false;
+      try {
+        const r = await api('/api/data', {}, keys.auth);
+        this.data = await decrypt(keys.aes, r.blob); this.keys = keys; this.version = r.version;
+        return true;
+      } catch (e) { await Session.clear(); return false; }
+    },
+    touch(minutes) { if (this.keys) Session.touch(minutes).catch(() => {}); },
 
     async reload() {
       const r = await api('/api/data', {}, this.keys.auth);
@@ -117,6 +167,7 @@
       const authHash = hex(await crypto.subtle.digest('SHA-256', enc.encode(keys.auth)));
       const r = await api('/api/password', { method: 'POST', body: JSON.stringify({ salt, iter: ITER, authHash, blob, baseVersion: this.version }) }, this.keys.auth);
       this.keys = keys; this.version = r.version;
+      try { await Session.save(keys, (this.data.settings && this.data.settings.autoLockMin) || 3); } catch (e) { /* ignore */ }
     },
 
     async exportBackup() { // encrypted file, opens only with the password
@@ -132,7 +183,7 @@
       return decrypt(keys.aes, f.blob);
     },
 
-    lock() { this.keys = null; this.data = null; },
+    lock() { this.keys = null; this.data = null; return Session.clear(); },
   };
 
   window.KupaStore = Store;

@@ -192,3 +192,10 @@ table.grid tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
 .tx.picked .box { background: var(--accent); border-color: var(--accent); }
 .selbar { position: sticky; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 8; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); display: grid; gap: 8px; }
 @media (min-width: 760px) { .selbar { bottom: 16px; } }
+
+/* drill-down */
+td.drill { cursor: pointer; }
+td.drill:hover, td.drill:focus-visible { text-decoration: underline; text-underline-offset: 3px; outline: none; }
+.kpi-link { text-align: start; cursor: pointer; font: inherit; color: inherit; }
+.kpi-link:hover { border-color: var(--accent); }
+button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
