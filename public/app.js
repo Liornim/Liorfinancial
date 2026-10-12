@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down
+  const VERSION = '1.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -53,6 +53,7 @@
   const mShort = (m) => MONTHS[+m.slice(5, 7) - 1].slice(0, 3) + "' " + m.slice(2, 4);
   const addMonths = (m, k) => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 1 + k, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
   const thisMonth = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const fullDate = (iso) => iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
   const dShort = (iso) => iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) : '';
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
   const round2 = (n) => Math.round(n * 100) / 100;
@@ -101,10 +102,15 @@
   const catName = (id) => (catById(id) || {}).name || 'לסיווג';
   const expenseCats = () => D().categories.filter((c) => c.type === 'expense');
 
-  function monthOf(t) {
+  // Which month a transaction belongs to. Default basis = billing month (the month the card is charged);
+  // the home screen can switch to purchase date. Manual entries have no billing date -> their own date.
+  function monthOfRaw(t, basis) {
+    if (basis !== 'purchase' && t.billingDate) return t.billingDate.slice(0, 7);
     if (t.inst && D().settings.instByBilling && t.billingDate) return t.billingDate.slice(0, 7);
     return t.date.slice(0, 7);
   }
+  const monthOf = (t) => monthOfRaw(t, ui.basis);
+  const basisLabel = () => (ui.basis === 'purchase' ? 'לפי תאריך עסקה' : 'לפי חודש חיוב');
   // signed contribution: expenses positive, refunds negative; income tracked separately
   function parts(t) {
     if (t.excluded || t.amount == null) return [];
@@ -214,7 +220,7 @@
       D().txns.push({ ...t, id: uid(), source: 'card', dir: 'out', cat, catSrc: src, splits: null, memo: '', importId: imp.id, excluded: false });
     }
     for (const [ex, t] of plan.update) {
-      Object.assign(ex, { amount: t.amount, amountOrig: t.amountOrig, currency: t.currency === '?' ? ex.currency : t.currency, billingDate: t.billingDate, pending: false, notes: t.notes, inst: t.inst || ex.inst });
+      Object.assign(ex, { amount: t.amount, amountOrig: t.amountOrig, currency: t.currency === '?' ? ex.currency : t.currency, billingDate: t.billingDate, billingEst: false, pending: false, notes: t.notes, inst: t.inst || ex.inst });
     }
     D().imports.unshift(imp);
     S.save();
@@ -230,7 +236,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -301,6 +307,11 @@
           h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.month = addMonths(m, 1); render(); } }, icon('next'))),
         h('div', { class: 'grow' }),
         m !== thisMonth() ? h('button', { class: 'btn small', onclick: () => { ui.month = thisMonth(); render(); } }, 'החודש') : null),
+      h('div', { class: 'row' },
+        h('div', { class: 'seg', role: 'group', 'aria-label': 'שיוך לחודש' },
+          h('button', { 'aria-pressed': ui.basis !== 'purchase' ? 'true' : 'false', onclick: () => { ui.basis = 'billing'; render(); } }, 'חודש חיוב'),
+          h('button', { 'aria-pressed': ui.basis === 'purchase' ? 'true' : 'false', onclick: () => { ui.basis = 'purchase'; render(); } }, 'תאריך עסקה')),
+        h('span', { class: 'faint' }, ui.basis === 'purchase' ? 'מוצג לפי מתי קנית. חל גם על עסקאות ודוחות עד שתחזיר.' : 'מוצג לפי מתי חויב הכרטיס (חיוב 02.10 = אוקטובר)')),
       h('div', { class: 'kpis' },
         kpi('הוצאות', amt(st.spent)),
         kpi('תקציב', st.budget ? amt(st.budget) : h('button', { class: 'value', onclick: () => setView('settings') }, 'להגדרה ›')),
@@ -375,7 +386,7 @@
       ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה ל' + ({ reports: 'דוחות', month: 'חודש' }[ui.back] || 'קודם'))) : null,
       h('div', { class: 'filters' },
         search,
-        h('select', { 'aria-label': 'חודש', onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m)))),
+        h('select', { 'aria-label': 'חודש', title: basisLabel(), onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m) + (ui.basis === 'purchase' ? ' (עסקה)' : ' (חיוב)')))),
         h('select', { 'aria-label': 'קטגוריה', onchange: (e) => upd('cat', e.target.value) }, h('option', { value: '' }, 'כל הקטגוריות'), h('option', { value: '_none', selected: ui.f.cat === '_none' }, 'לסיווג'), D().categories.map((c) => h('option', { value: c.id, selected: ui.f.cat === c.id }, c.name))),
         h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c))),
         h('div', { class: 'row' },
@@ -423,7 +434,7 @@
       role: ui.selMode ? 'checkbox' : 'button', 'aria-checked': ui.selMode ? String(picked) : null, tabindex: 0, onclick: act, onkeydown: (e) => { if (e.key === 'Enter' || (ui.selMode && e.key === ' ')) { e.preventDefault(); act(); } } },
       h('div', { class: 'm' }, ui.selMode ? h('span', { class: 'box', 'aria-hidden': 'true' }, picked ? '✓' : '') : null, t.merchant || '(ללא שם)'),
       h('div', { class: 'a' }, t.amount == null ? h('span', { class: 'faint' }, 'טרם נקבע') : amt(t.dir === 'in' ? t.amount : t.amount, true)),
-      h('div', { class: 'meta' }, h('span', { class: 'num' }, dShort(t.date)), h('span', { class: 'pill' }, cardLabel(t)),
+      h('div', { class: 'meta' }, h('span', { class: 'num', title: 'תאריך עסקה' }, dShort(t.date)), t.billingDate ? h('span', { class: 'bill', title: 'תאריך חיוב' }, '· חיוב ', h('span', { class: 'num' }, dShort(t.billingDate))) : null, h('span', { class: 'pill' }, cardLabel(t)),
         t.inst ? h('span', { class: 'pill accent' }, `תשלום ${t.inst.n}/${t.inst.of}`) : null,
         t.pending ? h('span', { class: 'pill warn' }, 'בקליטה') : null,
         t.currency && t.currency !== 'ILS' && t.currency !== '?' ? h('span', { class: 'pill' }, t.currency + ' ' + t.amountOrig) : null,
@@ -535,7 +546,12 @@
       return h('div', { class: 'stack' },
         h('div', { class: 'row' }, h('div', { style: 'font-size:24px;font-weight:700' }, t.amount == null ? 'סכום טרם נקבע' : amt(t.amount, true)),
           t.currency && t.currency !== 'ILS' && t.currency !== '?' ? h('span', { class: 'pill' }, `${t.amountOrig} ${t.currency}`) : null),
-        h('div', { class: 'faint' }, [dShort(t.date) + '.' + t.date.slice(0, 4), cardLabel(t), t.inst ? `תשלום ${t.inst.n} מתוך ${t.inst.of} (עסקה מלאה ${ils(t.amountOrig)})` : null, t.billingDate ? 'חיוב ' + dShort(t.billingDate) : null, 'נספר ב' + mLabel(monthOf(t)), t.notes].filter(Boolean).join(' · ')),
+        h('div', { class: 'dates' },
+          h('div', null, h('span', { class: 'faint' }, 'תאריך עסקה'), h('b', { class: 'num' }, fullDate(t.date))),
+          h('div', null, h('span', { class: 'faint' }, 'תאריך חיוב'), t.billingDate ? h('b', { class: 'num' }, fullDate(t.billingDate) + (t.billingEst ? ' (משוער)' : '')) : h('b', null, t.source === 'card' ? 'לא ידוע' : '—')),
+          h('div', null, h('span', { class: 'faint' }, 'נספר ב'), h('b', null, mLabel(monthOf(t)))),
+          h('div', null, h('span', { class: 'faint' }, 'כרטיס'), h('b', null, cardLabel(t)))),
+        h('div', { class: 'faint' }, [t.inst ? `תשלום ${t.inst.n} מתוך ${t.inst.of} (עסקה מלאה ${ils(t.amountOrig)})` : null, (t.notes || '').replace(/תשלום\s*\d+\s*מתוך\s*\d+/g, '').replace(/^[\s·]+|[\s·]+$/g, '')].filter(Boolean).join(' · ')),
         p2p ? h('div', { class: 'notice info' }, 'העברה בין אנשים — סווג ידנית. כדאי לרשום בהערה על מה היא.') : null,
         h('label', { class: 'field' }, h('span', null, 'קטגוריה'), catSel),
         t.source === 'card' && !p2p ? h('label', { class: 'check faint' }, learn, 'לזכור: כל העסקאות מבית העסק הזה ייכנסו לקטגוריה הזאת') : null,
@@ -641,7 +657,7 @@
     const allOk = parsed.checks.every((c) => c.ok !== false);
     const sum = (arr) => arr.reduce((n, t) => n + (t.amount || 0), 0);
     const byMonth = {};
-    for (const t of plan.add) { const m = (t.inst && D().settings.instByBilling && t.billingDate ? t.billingDate : t.date).slice(0, 7); byMonth[m] = (byMonth[m] || 0) + 1; }
+    for (const t of plan.add) { const m = monthOf(t); byMonth[m] = (byMonth[m] || 0) + 1; }
     const autoCat = plan.add.filter((t) => classify(t).cat).length;
     return h('section', { class: 'card stack' },
       h('div', { class: 'row' }, h('h3', { class: 'grow' }, pi.file), h('span', { class: 'pill' }, parsed.issuer === 'cal' ? 'כאל / דיינרס' : 'ישראכרט / אמקס')),
@@ -654,7 +670,7 @@
         plan.dup.length ? h('span', { class: 'pill' }, `${plan.dup.length} כבר קיימות — ידולגו`) : null,
         plan.crossDup ? h('span', { class: 'pill warn' }, `${plan.crossDup} מהן זוהו לפי תאריך+סכום מייצוא בפורמט אחר`) : null,
         plan.add.length ? h('span', { class: 'pill' }, `${autoCat} יסווגו אוטומטית`) : null),
-      Object.keys(byMonth).length ? h('div', { class: 'faint' }, 'ייספרו בחודשים: ' + Object.entries(byMonth).sort().map(([m, n]) => `${mLabel(m)} (${n})`).join(', ')) : null,
+      Object.keys(byMonth).length ? h('div', { class: 'faint' }, `ייספרו בחודשים (${basisLabel()}): ` + Object.entries(byMonth).sort().map(([m, n]) => `${mLabel(m)} (${n})`).join(', ')) : null,
       parsed.warnings.map((w) => h('div', { class: 'notice' }, w)),
       !allOk ? h('label', { class: 'check check-bad' }, h('input', { type: 'checkbox', checked: pi.force, onchange: (e) => { pi.force = e.target.checked; render(); } }), 'הבנתי שיש פער — לייבא בכל זאת') : null,
       h('div', { class: 'row' },
@@ -697,7 +713,7 @@
     const monthOpts = (sel) => all.slice().reverse().map((m) => h('option', { value: m, selected: m === sel }, mLabel(m)));
 
     return h('main', { class: 'stack' },
-      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'דוחות'),
+      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'דוחות', h('span', { class: 'faint', style: 'font-size:13px;font-weight:400;margin-inline-start:8px' }, basisLabel())),
         h('div', { class: 'seg', role: 'group', 'aria-label': 'טווח' }, [3, 6, 12, 24].map((n) => h('button', { 'aria-pressed': ui.reportRange === n ? 'true' : 'false', onclick: () => { ui.reportRange = n; render(); } }, n + ' ח׳')))),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'הוצאות לפי חודש'), h('span', { class: 'faint' }, `ממוצע (${active} ח׳ עם נתונים) `, amt(stats.reduce((n, s) => n + s.spent, 0) / active))),
@@ -816,7 +832,7 @@
       h('section', { class: 'card stack' },
         h('h2', null, 'כללי'),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: D().settings.instByBilling, onchange: (e) => { D().settings.instByBilling = e.target.checked; S.save(); } }),
-          'עסקת תשלומים נספרת לפי חודש החיוב (כבוי = לפי חודש הרכישה)'),
+          'במצב "תאריך עסקה": עסקת תשלומים נספרת לפי חודש החיוב שלה (כבוי = לפי תאריך הרכישה)'),
         h('label', { class: 'field', style: 'max-width:240px' }, h('span', null, 'נעילה אוטומטית אחרי (דקות)'),
           h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { if (!S.data) return; D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 3)); S.save(); lastTouch = 0; resetIdle(); } }))),
       cardEntries.length ? h('section', { class: 'card stack' }, h('h2', null, 'כרטיסים'),

@@ -210,7 +210,7 @@
           amount: pending ? (foreign ? null : orig) : charge, chargeCurrency: 'ILS',
           voucher: '', notes: [type, notes].filter(Boolean).join(' · '), sector: clean(r[cols['ענף']]),
           inst: parseInstallment(notes) || parseInstallment(type), pending,
-          billingDate: pending ? null : st.billingDate, abroad: foreign, standing: /הוראת קבע/.test(type + notes),
+          billingDate: st.billingDate, billingEst: pending, abroad: foreign, standing: /הוראת קבע/.test(type + notes),
         };
         if (!pending) { st.rowsTotal += charge || 0; st.count++; }
         out.txns.push(t);
