@@ -6,6 +6,6 @@ for (const f of process.argv.slice(2)) {
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
   const r = P.parseRows(rows);
   if (!r) { console.log(f, 'UNKNOWN FORMAT'); bad++; continue; }
-  for (const c of P.verify(r)) { console.log(f, r.issuer, c.card, c.count, c.got, '/', c.expected, c.ok ? 'OK' : 'MISMATCH'); if (c.ok === false) bad++; }
+  for (const c of P.verify(r)) { console.log(f, r.issuer, c.card, c.count, c.got, '/', c.expected, c.ok === null ? 'no total in file' : c.ok ? 'OK' : 'MISMATCH'); if (c.ok === false) bad++; }
 }
 process.exit(bad ? 1 : 0);

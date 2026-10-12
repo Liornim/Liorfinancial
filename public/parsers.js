@@ -231,9 +231,101 @@
     return out;
   }
 
+  /* ---------- Cal "פירוט עסקאות וזיכויים" — many cards, many months, one sheet; ILS amount + billing date per row ---------- */
+  const norm = (c) => clean(c).replace(/\s/g, '');
+  function isCalTxList(rows) {
+    return rows.slice(0, 10).some((r) => r && norm(r[0]) === 'תאריךעסקה' && r.some((c) => norm(c) === 'כרטיס') && r.some((c) => norm(c) === 'מועדחיוב'));
+  }
+  const FX = { '$': 'USD', '€': 'EUR', '£': 'GBP' };
+  function addMonthsISO(iso, k) {
+    const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1 + k, +iso.slice(8, 10)));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function parseCalTxList(rows) {
+    const out = { issuer: 'cal', format: 'txlist', statements: [], txns: [], warnings: [] };
+    let cols = null; let stated = null; const raw = [];
+    for (const r of rows) {
+      if (!r) continue;
+      if (!cols && norm(r[0]) === 'תאריךעסקה') { cols = {}; r.forEach((c, j) => { if (clean(c)) cols[norm(c)] = j; }); continue; }
+      if (!cols) continue;
+      if (r.some((c) => /^סה"כ עסקאות/.test(clean(c)))) { const i = r.findIndex((c) => /^סה"כ עסקאות/.test(clean(c))); stated = num(r[i + 1]); continue; }
+      const date = toISODate(r[cols['תאריךעסקה']]);
+      if (!date) continue;
+      raw.push(r);
+    }
+    let skipped = 0;
+    for (const r of raw) {
+      const cardTxt = clean(r[cols['כרטיס']]);
+      const m4 = cardTxt.match(/(\d{4})\s*$/);
+      const notes = clean(r[cols['הערות']]);
+      const type = clean(r[cols['סוגעסקה']]);
+      const amount = num(r[cols['סכוםבש"ח']]);
+      const pending = /בקליטה/.test(notes);
+      if (amount == null) { skipped++; continue; }
+      const fx = notes.match(/סכום העסקה הוא\s*([\d.,]+)\s*(\S+)/);
+      const instOf = (notes.match(/ב-?\s*(\d+)\s*תשלומים/) || [])[1];
+      out.txns.push({
+        issuer: 'cal', card: m4 ? m4[1] : '????', cardName: cardTxt.replace(/\s*\d{4}\s*$/, '') || 'כאל',
+        date: toISODate(r[cols['תאריךעסקה']]), merchant: clean(r[cols['שםביתעסק']]),
+        amountOrig: fx ? num(fx[1]) : amount, currency: fx ? (FX[fx[2]] || fx[2]) : 'ILS', amount, chargeCurrency: 'ILS',
+        voucher: '', notes: [type, notes].filter(Boolean).join(' · '), sector: '',
+        inst: instOf ? { n: 0, of: +instOf } : null, pending,
+        billingDate: toISODate(r[cols['מועדחיוב']]), billingEst: false,
+        abroad: !!fx, standing: /הוראת קבע/.test(type),
+      });
+    }
+    // installments come as N identical-date rows without index or billing date: number them in file order,
+    // and estimate billing from the card's other transactions bought within ±3 days (first one), then +1 month each.
+    const byCard = {};
+    for (const t of out.txns) if (t.billingDate) (byCard[t.card] = byCard[t.card] || []).push(t);
+    const estimate = (t) => {
+      // nearest regular purchase on the same card: same day first, then the days right after, then right before
+      const T = Date.parse(t.date);
+      const near = (byCard[t.card] || []).filter((o) => !o.inst && !o.billingEst && Math.abs(Date.parse(o.date) - T) <= 4 * 864e5 && o.billingDate > t.date)
+        .sort((x, y) => { const dx = Date.parse(x.date) - T, dy = Date.parse(y.date) - T; return (dx < 0) - (dy < 0) || Math.abs(dx) - Math.abs(dy); });
+      return near.length ? near[0].billingDate : null;
+    };
+    const groups = {};
+    for (const t of out.txns) if (t.inst) { const g = [t.card, t.date, t.merchant, t.inst.of].join('|'); (groups[g] = groups[g] || []).push(t); }
+    for (const g of Object.values(groups)) {
+      const first = estimate(g[0]);
+      g.forEach((t, i) => { t.inst.n = (i % t.inst.of) + 1; if (!t.billingDate && first) { t.billingDate = addMonthsISO(first, t.inst.n - 1); t.billingEst = true; } });
+    }
+    for (const t of out.txns) if (!t.billingDate) { const e = estimate(t); if (e) { t.billingDate = e; t.billingEst = true; } }
+
+    // statements: per card (no printed per-card total) + one overall check against the file's total (excludes pending)
+    const cards = {};
+    for (const t of out.txns) {
+      const st = (cards[t.card] = cards[t.card] || { card: t.card, cardName: t.cardName, headerTotal: null, billingDate: null, rowsTotal: 0, count: 0, statedTotal: null });
+      if (!t.pending) { st.rowsTotal += t.amount; st.count++; }
+      if (t.billingDate && (!st.billingDate || t.billingDate > st.billingDate)) st.billingDate = t.billingDate;
+    }
+    const all = { card: '*', label: 'כל הכרטיסים', cardName: '', headerTotal: null, billingDate: null, rowsTotal: 0, count: 0, statedTotal: stated };
+    for (const st of Object.values(cards)) { st.rowsTotal = Math.round(st.rowsTotal * 100) / 100; all.rowsTotal += st.rowsTotal; all.count += st.count; out.statements.push(st); }
+    all.rowsTotal = Math.round(all.rowsTotal * 100) / 100;
+    out.statements.push(all);
+
+    // same key scheme as the other Cal format, so the two never double count
+    const seen = {};
+    for (const t of out.txns) {
+      const base = ['cal', t.card, t.date, t.merchant, t.amountOrig, t.inst ? t.inst.n : 0].join('|');
+      seen[base] = (seen[base] || 0) + 1;
+      t.key = base + '|' + seen[base];
+      delete t.cardName;
+    }
+    const pend = out.txns.filter((t) => t.pending).length;
+    if (pend) out.warnings.push(`${pend} עסקאות "בקליטה" — ייובאו כזמניות ויתעדכנו בייבוא הבא`);
+    if (skipped) out.warnings.push(`${skipped} עסקאות בקליטה בלי סכום בש"ח (מט"ח) — לא יובאו; יגיעו בייבוא הבא`);
+    const inst = Object.keys(groups).length;
+    if (inst) out.warnings.push(`${inst} עסקאות תשלומים — בקובץ אין מספר תשלום ותאריך חיוב, אז הם מוערכים לפי עסקאות אחרות באותו כרטיס`);
+    return out;
+  }
+
   function parseRows(rows) {
     if (isIsracard(rows)) return parseIsracard(rows);
     if (isIsracardExport(rows)) return parseIsracardExport(rows);
+    if (isCalTxList(rows)) return parseCalTxList(rows);
     if (isCal(rows)) return parseCal(rows);
     return null;
   }
@@ -243,7 +335,7 @@
     return res.statements.map((s) => {
       const expected = s.statedTotal != null ? s.statedTotal : s.headerTotal;
       const ok = expected == null ? null : Math.abs(expected - s.rowsTotal) < 0.05;
-      return { card: s.card, expected, got: s.rowsTotal, ok, count: s.count, billingDate: s.billingDate };
+      return { card: s.card, label: s.label, expected, got: s.rowsTotal, ok, count: s.count, billingDate: s.billingDate };
     });
   }
 

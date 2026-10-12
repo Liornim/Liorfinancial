@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card
+  const VERSION = '1.8'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -182,7 +182,7 @@
       if (r && r.txns.length) results.push(r);
     }
     if (!results.length) throw new Error('הפורמט לא מזוהה. נתמכים כרגע: ישראכרט / אמריקן אקספרס, כאל / דיינרס.');
-    const merged = { issuer: results[0].issuer, statements: results.flatMap((r) => r.statements), txns: results.flatMap((r) => r.txns), warnings: results.flatMap((r) => r.warnings) };
+    const merged = { issuer: results[0].issuer, format: results[0].format, statements: results.flatMap((r) => r.statements), txns: results.flatMap((r) => r.txns), warnings: results.flatMap((r) => r.warnings) };
     merged.checks = P.verify(merged);
     return merged;
   }
@@ -208,10 +208,11 @@
   }
 
   function applyImport(parsed, plan, fileName) {
-    const imp = { id: uid(), at: new Date().toISOString(), file: fileName, issuer: parsed.issuer, cards: [...new Set(parsed.statements.map((s) => s.card))], added: plan.add.length, updated: plan.update.length, dup: plan.dup.length, checks: parsed.checks };
+    const imp = { id: uid(), at: new Date().toISOString(), file: fileName, issuer: parsed.issuer, cards: [...new Set(parsed.statements.filter((s) => s.card !== '*').map((s) => s.card))], added: plan.add.length, updated: plan.update.length, dup: plan.dup.length, checks: parsed.checks };
     for (const st of parsed.statements) {
+      if (st.card === '*') continue;
       if (!D().cards[st.card]) {
-        const base = /AMEX|אמריקן/i.test(st.cardName) ? 'אמקס' : parsed.issuer === 'cal' ? (/דיינרס/.test(st.cardName) ? 'דיינרס' : 'כאל') : 'ישראכרט';
+        const base = /AMEX|אמריקן/i.test(st.cardName) ? 'אמקס' : parsed.issuer === 'cal' ? (/דיינרס/.test(st.cardName) ? 'דיינרס' : /ויזה/.test(st.cardName) ? 'ויזה כאל' : /מסטרקארד/.test(st.cardName) ? 'מסטרקארד כאל' : 'כאל') : 'ישראכרט';
         D().cards[st.card] = { label: base + ' ' + st.card, issuer: parsed.issuer };
       }
     }
@@ -622,7 +623,7 @@
       ondragover: (e) => { e.preventDefault(); drop.classList.add('on'); }, ondragleave: () => drop.classList.remove('on'),
       ondrop: (e) => { e.preventDefault(); drop.classList.remove('on'); handleFiles(e.dataTransfer.files); } },
       h('div', { style: 'font-weight:600;font-size:16px' }, 'בחר או גרור קבצי אקסל'),
-      h('div', { class: 'faint' }, 'ישראכרט · אמריקן אקספרס (שני הפורמטים) · כאל · דיינרס. אפשר כמה קבצים בבת אחת. הקובץ נקרא רק בתוך הדפדפן.'));
+      h('div', { class: 'faint' }, 'ישראכרט · אמריקן אקספרס (שני הפורמטים) · כאל / דיינרס (שני הפורמטים). אפשר כמה קבצים בבת אחת. הקובץ נקרא רק בתוך הדפדפן.'));
 
     return h('main', { class: 'stack' },
       h('h1', null, 'ייבוא'),
@@ -660,10 +661,10 @@
     for (const t of plan.add) { const m = monthOf(t); byMonth[m] = (byMonth[m] || 0) + 1; }
     const autoCat = plan.add.filter((t) => classify(t).cat).length;
     return h('section', { class: 'card stack' },
-      h('div', { class: 'row' }, h('h3', { class: 'grow' }, pi.file), h('span', { class: 'pill' }, parsed.issuer === 'cal' ? 'כאל / דיינרס' : 'ישראכרט / אמקס')),
-      parsed.checks.map((c) => h('div', null, `כרטיס ${c.card} · חיוב ${c.billingDate ? dShort(c.billingDate) : '?'} · ${c.count} עסקאות · `,
+      h('div', { class: 'row' }, h('h3', { class: 'grow' }, pi.file), h('span', { class: 'pill' }, parsed.issuer === 'cal' ? (parsed.format === 'txlist' ? 'כאל — פירוט עסקאות וזיכויים' : 'כאל / דיינרס') : 'ישראכרט / אמקס')),
+      parsed.checks.map((c) => h('div', null, c.label ? `${c.label} · ${c.count} עסקאות · ` : `כרטיס ${c.card} · ${parsed.format === 'txlist' ? 'חיוב אחרון' : 'חיוב'} ${c.billingDate ? dShort(c.billingDate) : '?'} · ${c.count} עסקאות · `,
         c.ok === true ? h('span', { class: 'check-ok' }, '✓ הסכום תואם לסה"כ בקובץ (', amt(c.got, true), ')') :
-          c.ok === false ? h('span', { class: 'check-bad' }, '✗ קראתי ', amt(c.got, true), ' אבל בקובץ כתוב ', amt(c.expected, true)) : h('span', { class: 'faint' }, 'אין סה"כ בקובץ לבדיקה'))),
+          c.ok === false ? h('span', { class: 'check-bad' }, '✗ קראתי ', amt(c.got, true), ' אבל בקובץ כתוב ', amt(c.expected, true)) : h('span', { class: 'faint' }, parsed.format === 'txlist' ? amt(c.got, true) : 'אין סה"כ בקובץ לבדיקה'))),
       h('div', { class: 'row' },
         h('span', { class: 'pill accent' }, `${plan.add.length} חדשות (${ils(sum(plan.add))})`),
         plan.update.length ? h('span', { class: 'pill' }, `${plan.update.length} יתעדכנו מ"בקליטה"`) : null,
