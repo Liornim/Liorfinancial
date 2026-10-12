@@ -1,0 +1,57 @@
+# Deploys the Worker "kupa" and reports the outcome as an issue (the assistant's sandbox can't read Actions logs).
+# The report never contains app data — the server only holds ciphertext anyway.
+name: deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency: { group: deploy, cancel-in-progress: false }
+permissions: { contents: read, issues: write }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Deploy
+        id: deploy
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npx --yes wrangler@3 deploy 2>&1 | tee /tmp/deploy.log
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set SETUP_CODE
+        id: setup
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if [ -z "$SETUP_CODE" ]; then echo "SETUP_CODE secret missing" | tee -a /tmp/deploy.log; exit 1; fi
+          printf '%s' "$SETUP_CODE" | npx --yes wrangler@3 secret put SETUP_CODE 2>&1 | grep -viE 'code|secret value' | tail -3 | tee -a /tmp/deploy.log
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SETUP_CODE: ${{ secrets.SETUP_CODE }}
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ steps.deploy.outcome }}/${{ steps.setup.outcome }}
+        run: |
+          W=https://kupa.noamharelnim.workers.dev
+          sleep 15
+          { echo "deploy/setup_code: $OUTCOME  sha: ${GITHUB_SHA:0:7}";
+            echo '### deploy log (tail)'; tail -c 2500 /tmp/deploy.log | sed -E 's/[A-Za-z0-9_-]{30,}/[redacted]/g';
+            echo; echo '### /api/meta'; curl -s -m 20 $W/api/meta;
+            echo; echo '### GET / headers'; curl -sI -m 20 $W/ | grep -iE '^(HTTP|content-security|x-frame|cache-control)';
+            echo '### GET /api/data without auth'; curl -s -m 20 -o /dev/null -w '%{http_code}' $W/api/data; } > /tmp/report.txt 2>&1
+          python3 - <<'PY'
+          import json, os, urllib.request
+          body = "```\n" + open('/tmp/report.txt').read()[-6000:] + "\n```"
+          req = urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues",
+              data=json.dumps({"title": f"deploy: {os.environ['OUTCOME']} {os.environ['GITHUB_SHA'][:7]}", "body": body}).encode(),
+              headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"})
+          print(urllib.request.urlopen(req, timeout=30).status)
+          PY

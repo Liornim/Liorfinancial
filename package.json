@@ -1,0 +1,6 @@
+{
+  "name": "kupa",
+  "private": true,
+  "scripts": { "dev": "wrangler dev --local", "deploy": "wrangler deploy", "test:parsers": "node tests/parsers.test.js" },
+  "devDependencies": { "wrangler": "^3", "xlsx": "0.18.5" }
+}
