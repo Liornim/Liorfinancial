@@ -90,7 +90,7 @@
       ...['מכבי', 'כללית', 'מאוחדת', 'לאומית', 'רופא', 'מרפאה'].map((t) => R(t, 'בריאות')),
     ];
     const sectors = { 'אנרגיה': id('רכב ודלק'), 'פנאי בילוי': id('פנאי ובילוי'), 'מוצרי חשמל': id('אלקטרוניקה'), 'מוסדות': id('אגרות וממשלה'), 'מזון': id('סופר ומכולת'), 'מסעדות': id('אוכל בחוץ ומשלוחים'), 'תקשורת': id('מנויים ותקשורת'), 'ביגוד': id('ביגוד והנעלה'), 'רפואה': id('בריאות'), 'תיירות': id('חו"ל ונסיעות'), 'תחבורה': id('תחבורה ומוניות'), 'רכב': id('רכב ודלק') };
-    return { schema: 1, created: new Date().toISOString(), settings: { instByBilling: true, autoLockMin: 10 }, categories: cats, rules, sectors, budgets: {}, txns: [], imports: [], cards: {} };
+    return { schema: 1, created: new Date().toISOString(), settings: { instByBilling: true, autoLockMin: 3, lockV: 2 }, categories: cats, rules, sectors, budgets: {}, txns: [], imports: [], cards: {} };
   }
 
   const D = () => S.data;
@@ -726,7 +726,7 @@
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: D().settings.instByBilling, onchange: (e) => { D().settings.instByBilling = e.target.checked; S.save(); } }),
           'עסקת תשלומים נספרת לפי חודש החיוב (כבוי = לפי חודש הרכישה)'),
         h('label', { class: 'field', style: 'max-width:240px' }, h('span', null, 'נעילה אוטומטית אחרי (דקות)'),
-          h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 10)); S.save(); } }))),
+          h('input', { type: 'number', min: '1', max: '120', value: D().settings.autoLockMin, onchange: (e) => { D().settings.autoLockMin = Math.max(1, Math.min(120, +e.target.value || 3)); S.save(); resetIdle(); } }))),
       cardEntries.length ? h('section', { class: 'card stack' }, h('h2', null, 'כרטיסים'),
         h('div', { class: 'fields' }, cardEntries.map(([num, c]) => h('label', { class: 'field' }, h('span', null, 'מסתיים ב-' + num),
           h('input', { type: 'text', value: c.label, onchange: (e) => { c.label = e.target.value.trim() || c.label; S.save(); } }))))) : null,
@@ -838,7 +838,7 @@
   function resetIdle() {
     clearTimeout(idleTimer);
     if (!S.data) return;
-    idleTimer = setTimeout(() => lockNow('ננעל אחרי חוסר פעילות'), (D().settings.autoLockMin || 10) * 60000);
+    idleTimer = setTimeout(() => lockNow('ננעל אחרי חוסר פעילות'), (D().settings.autoLockMin || 3) * 60000);
   }
   async function lockNow(msg) {
     if (S.dirty) { try { await S.flush(); } catch (e) { /* ignore */ } }
@@ -853,15 +853,18 @@
   }
   function migrate() {
     const d = D();
-    d.settings = Object.assign({ instByBilling: true, autoLockMin: 10 }, d.settings || {});
+    d.settings = Object.assign({ instByBilling: true, autoLockMin: 3 }, d.settings || {});
+    if (!d.settings.lockV) { d.settings.autoLockMin = 3; d.settings.lockV = 2; S.save(); } // one-time: new default 3 min
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
   }
 
   S.onStatus(onSync);
-  ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
+  let lastMove = 0;
+  ['pointerdown', 'keydown', 'scroll', 'touchstart', 'wheel'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
+  document.addEventListener('pointermove', () => { const n = Date.now(); if (n - lastMove > 5000) { lastMove = n; resetIdle(); } }, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); if (S.dirty) S.flush(); }
-    else if (S.data && hiddenAt && Date.now() - hiddenAt > (D().settings.autoLockMin || 10) * 60000) lockNow('ננעל אחרי חוסר פעילות');
+    else if (S.data && hiddenAt && Date.now() - hiddenAt > (D().settings.autoLockMin || 3) * 60000) lockNow('ננעל אחרי חוסר פעילות');
   });
   window.addEventListener('beforeunload', (e) => { if (S.dirty) { S.flush(); e.preventDefault(); e.returnValue = ''; } });
 
