@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.3'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label
+  const VERSION = '1.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format
   const VERSION_DATE = '12.10.26';
   const S = window.KupaStore;
   const P = window.KupaParsers;
@@ -182,12 +182,20 @@
 
   function planImport(parsed) {
     const byKey = new Map(D().txns.filter((t) => t.key).map((t) => [t.key, t]));
-    const plan = { add: [], update: [], dup: [] };
+    // Same bill can come in two Isracard/Amex formats with different voucher numbers.
+    // Secondary match across formats only: card + purchase date + charged amount + installment no.
+    const fmt = (k) => (k || '').split('|')[0];
+    const sec = (t) => [t.card, t.date, Math.round((t.amount || 0) * 100), t.inst ? t.inst.n : 0].join('|');
+    const pool = {};
+    for (const t of D().txns) if (t.key && t.source === 'card') { const k = sec(t); (pool[k] = pool[k] || []).push(fmt(t.key)); }
+    const plan = { add: [], update: [], dup: [], crossDup: 0 };
     for (const t of parsed.txns) {
       const ex = byKey.get(t.key);
-      if (!ex) plan.add.push(t);
-      else if (ex.pending && !t.pending) plan.update.push([ex, t]);
-      else plan.dup.push(t);
+      if (ex) { if (ex.pending && !t.pending) plan.update.push([ex, t]); else plan.dup.push(t); continue; }
+      const cands = pool[sec(t)];
+      const i = cands ? cands.findIndex((f) => f !== fmt(t.key) && f !== 'cal' && fmt(t.key) !== 'cal') : -1;
+      if (i >= 0) { cands.splice(i, 1); plan.dup.push(t); plan.crossDup++; continue; }
+      plan.add.push(t);
     }
     return plan;
   }
@@ -221,7 +229,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { view: 'month', month: thisMonth(), f: { q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false }, reportRange: 12, cmpA: null, cmpB: null };
+  const ui = { view: 'month', month: thisMonth(), f: { q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false }, reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch) { ui.view = v; if (patch) Object.assign(ui, patch); render(); window.scrollTo(0, 0); }
 
@@ -362,27 +370,44 @@
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל'))),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
         (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad) ? h('button', { class: 'btn small', onclick: () => { ui.f = { q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false }; render(); } }, 'ניקוי סינון') : null,
-        list.length > 1 && (ui.f.q || ui.f.onlyNone || ui.f.abroad || ui.f.cat) ? bulkBox(list) : null),
+        h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), style: 'margin-inline-start:auto', onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
       h('section', { class: 'card', style: 'padding:4px 12px' },
         list.length ? h('div', { class: 'txlist' }, list.slice(0, 500).map(txRow)) : h('div', { class: 'empty' }, 'אין עסקאות שמתאימות לסינון'),
-        list.length > 500 ? h('div', { class: 'faint', style: 'padding:8px' }, 'מוצגות 500 הראשונות — צמצם את הסינון') : null));
+        list.length > 500 ? h('div', { class: 'faint', style: 'padding:8px' }, 'מוצגות 500 הראשונות — צמצם את הסינון') : null),
+      ui.selMode ? selBar(list) : null);
   }
 
-  function bulkBox(list) {
-    const sel = h('select', { 'aria-label': 'סיווג כל המסוננות' }, catOptions(null));
-    return h('span', { class: 'row', style: 'margin-inline-start:auto' }, h('span', null, 'לסווג את כל ' + list.length + ':'), h('span', { style: 'min-width:170px' }, sel),
-      h('button', { class: 'btn small', onclick: () => {
-        if (!sel.value) return toast('בחר קטגוריה');
-        for (const t of list) { t.cat = sel.value; t.catSrc = 'manual'; t.splits = null; }
-        S.save(); toast(`סווגו ${list.length} עסקאות ל"${catName(sel.value)}"`); render();
-      } }, 'החלה'));
+  function selBar(list) {
+    // drop selections that are no longer in the filtered list
+    const ids = new Set(list.map((t) => t.id));
+    for (const id of [...ui.sel]) if (!ids.has(id)) ui.sel.delete(id);
+    const chosen = list.filter((t) => ui.sel.has(t.id));
+    const sum = chosen.reduce((n, t) => n + (t.amount || 0), 0);
+    const all = chosen.length === list.length && list.length > 0;
+    const sel = h('select', { 'aria-label': 'קטגוריה לנבחרות' }, catOptions(null));
+    return h('div', { class: 'selbar', role: 'region', 'aria-label': 'פעולות על הנבחרות' },
+      h('div', { class: 'row' },
+        h('b', null, `נבחרו ${chosen.length}`), chosen.length ? amt(sum) : null,
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn small', onclick: () => { if (all) ui.sel.clear(); else list.forEach((t) => ui.sel.add(t.id)); render(); } }, all ? 'ניקוי הבחירה' : `בחר הכל (${list.length})`)),
+      h('div', { class: 'row' },
+        h('span', { class: 'grow', style: 'min-width:160px' }, sel),
+        h('button', { class: 'btn primary', disabled: !chosen.length, onclick: () => {
+          if (!sel.value) return toast('בחר קטגוריה');
+          for (const t of chosen) { t.cat = sel.value; t.catSrc = 'manual'; t.splits = null; }
+          S.save(); toast(`סווגו ${chosen.length} עסקאות ל"${catName(sel.value)}"`);
+          ui.sel.clear(); render();
+        } }, 'סיווג')));
   }
 
   function txRow(t) {
     const hasSplit = t.splits && t.splits.length;
     const catText = t.excluded ? 'לא נספר' : hasSplit ? 'מפוצל: ' + t.splits.map((sp) => catName(sp.cat)).join(', ') : catName(t.cat);
-    return h('div', { class: 'tx' + (t.amount < 0 || t.dir === 'in' ? ' refund' : ''), role: 'button', tabindex: 0, onclick: () => openTx(t), onkeydown: (e) => { if (e.key === 'Enter') openTx(t); } },
-      h('div', { class: 'm' }, t.merchant || '(ללא שם)'),
+    const picked = ui.selMode && ui.sel.has(t.id);
+    const act = () => { if (ui.selMode) { if (ui.sel.has(t.id)) ui.sel.delete(t.id); else ui.sel.add(t.id); render(); } else openTx(t); };
+    return h('div', { class: 'tx' + (t.amount < 0 || t.dir === 'in' ? ' refund' : '') + (ui.selMode ? ' selectable' : '') + (picked ? ' picked' : ''),
+      role: ui.selMode ? 'checkbox' : 'button', 'aria-checked': ui.selMode ? String(picked) : null, tabindex: 0, onclick: act, onkeydown: (e) => { if (e.key === 'Enter' || (ui.selMode && e.key === ' ')) { e.preventDefault(); act(); } } },
+      h('div', { class: 'm' }, ui.selMode ? h('span', { class: 'box', 'aria-hidden': 'true' }, picked ? '✓' : '') : null, t.merchant || '(ללא שם)'),
       h('div', { class: 'a' }, t.amount == null ? h('span', { class: 'faint' }, 'טרם נקבע') : amt(t.dir === 'in' ? t.amount : t.amount, true)),
       h('div', { class: 'meta' }, h('span', { class: 'num' }, dShort(t.date)), h('span', { class: 'pill' }, cardLabel(t)),
         t.inst ? h('span', { class: 'pill accent' }, `תשלום ${t.inst.n}/${t.inst.of}`) : null,
@@ -395,7 +420,7 @@
   /* ---------------- sheets (drawers) ---------------- */
   function sheet(title, body, onClose) {
     const close = () => { scrim.remove(); document.removeEventListener('keydown', esc); if (onClose) onClose(); };
-    const esc = (e) => { if (e.key === 'Escape') close(); };
+    const esc = (e) => { if (e.key === 'Escape' && document.querySelector('.scrim:last-of-type') === scrim) close(); };
     const scrim = h('div', { class: 'scrim', onclick: (e) => { if (e.target === scrim) close(); } },
       h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
         h('div', { class: 'head' }, h('h2', null, title), h('button', { class: 'icon-btn', 'aria-label': 'סגירה', onclick: close }, icon('x'))),
@@ -408,7 +433,53 @@
 
   const catOptions = (sel, types) => [h('option', { value: '' }, '— לסיווג —'),
     ...['expense', 'transfer', 'income'].filter((ty) => !types || types.includes(ty)).map((ty) => h('optgroup', { label: { expense: 'הוצאות', transfer: 'העברות', income: 'הכנסות' }[ty] },
-      D().categories.filter((c) => c.type === ty).map((c) => h('option', { value: c.id, selected: sel === c.id }, c.name))))];
+      D().categories.filter((c) => c.type === ty).map((c) => h('option', { value: c.id, selected: sel === c.id }, c.name)))),
+    h('option', { value: '__new' }, '+ קטגוריה חדשה…')];
+
+  function openNewCategory(onDone) {
+    let created = null;
+    sheet('קטגוריה חדשה', (close) => {
+      const name = h('input', { type: 'text', placeholder: 'למשל: חוגים, רכב — טיפולים, חיסכון לדירה', maxlength: '40' });
+      const budget = h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', placeholder: '0' });
+      let type = 'expense';
+      const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג' });
+      const drawSeg = () => seg.replaceChildren(...[['expense', 'הוצאה'], ['transfer', 'העברה'], ['income', 'הכנסה']].map(([k, v]) =>
+        h('button', { type: 'button', 'aria-pressed': type === k ? 'true' : 'false', onclick: () => { type = k; budget.disabled = k !== 'expense'; drawSeg(); } }, v)));
+      drawSeg();
+      const save = () => {
+        const n = name.value.trim();
+        if (!n) return toast('צריך שם');
+        if (D().categories.some((c) => c.name === n)) return toast('כבר יש קטגוריה בשם הזה');
+        created = { id: uid(), name: n, type, budget: type === 'expense' ? Math.max(0, +budget.value || 0) : 0 };
+        D().categories.push(created); S.save(); close();
+      };
+      setTimeout(() => name.focus(), 50);
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+      return h('div', { class: 'stack' },
+        h('label', { class: 'field' }, h('span', null, 'שם'), name),
+        seg,
+        h('label', { class: 'field' }, h('span', null, 'תקציב חודשי (אפשר להשאיר ריק)'), budget),
+        h('div', { class: 'faint' }, 'העברה = לא נספרת כהוצאה (למשל העברה לחיסכון). אפשר לשנות ולמחוק בהגדרות.'),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'יצירה')));
+    }, () => onDone(created));
+  }
+
+  // any category <select> offering "+ new": remember the previous value, intercept "__new"
+  document.addEventListener('focusin', (e) => { if (e.target.tagName === 'SELECT') e.target.dataset.prev = e.target.value; }, true);
+  document.addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.tagName !== 'SELECT' || el.value !== '__new') return;
+    e.stopImmediatePropagation();
+    const prev = el.dataset.prev && el.dataset.prev !== '__new' ? el.dataset.prev : '';
+    openNewCategory((c) => {
+      if (!c) { el.value = prev; return; }
+      const isFilter = el.getAttribute('aria-label') === 'קטגוריה';
+      el.replaceChildren(...catOptions(c.id));
+      el.value = c.id; el.dataset.prev = c.id;
+      if (!isFilter) el.dispatchEvent(new Event('change', { bubbles: true }));
+      toast(`נוצרה "${c.name}"`);
+    });
+  }, true);
 
   function openTx(t) {
     sheet(t.merchant || 'עסקה', (close) => {
@@ -520,7 +591,7 @@
       ondragover: (e) => { e.preventDefault(); drop.classList.add('on'); }, ondragleave: () => drop.classList.remove('on'),
       ondrop: (e) => { e.preventDefault(); drop.classList.remove('on'); handleFiles(e.dataTransfer.files); } },
       h('div', { style: 'font-weight:600;font-size:16px' }, 'בחר או גרור קבצי אקסל'),
-      h('div', { class: 'faint' }, 'ישראכרט · אמריקן אקספרס · כאל · דיינרס. אפשר כמה קבצים בבת אחת. הקובץ נקרא רק בתוך הדפדפן.'));
+      h('div', { class: 'faint' }, 'ישראכרט · אמריקן אקספרס (שני הפורמטים) · כאל · דיינרס. אפשר כמה קבצים בבת אחת. הקובץ נקרא רק בתוך הדפדפן.'));
 
     return h('main', { class: 'stack' },
       h('h1', null, 'ייבוא'),
@@ -566,6 +637,7 @@
         h('span', { class: 'pill accent' }, `${plan.add.length} חדשות (${ils(sum(plan.add))})`),
         plan.update.length ? h('span', { class: 'pill' }, `${plan.update.length} יתעדכנו מ"בקליטה"`) : null,
         plan.dup.length ? h('span', { class: 'pill' }, `${plan.dup.length} כבר קיימות — ידולגו`) : null,
+        plan.crossDup ? h('span', { class: 'pill warn' }, `${plan.crossDup} מהן זוהו לפי תאריך+סכום מייצוא בפורמט אחר`) : null,
         plan.add.length ? h('span', { class: 'pill' }, `${autoCat} יסווגו אוטומטית`) : null),
       Object.keys(byMonth).length ? h('div', { class: 'faint' }, 'ייספרו בחודשים: ' + Object.entries(byMonth).sort().map(([m, n]) => `${mLabel(m)} (${n})`).join(', ')) : null,
       parsed.warnings.map((w) => h('div', { class: 'notice' }, w)),

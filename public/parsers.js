@@ -112,6 +112,67 @@
     return out;
   }
 
+  /* ---------- Isracard / Amex "Export" (.xls) — several cards per file, domestic + abroad sections ---------- */
+  function isIsracardExport(rows) {
+    return rows.some((r) => r && /-\s*\d{4}$/.test(clean(r[0])) && clean(r[1]) === 'מועד חיוב') ||
+      rows.some((r) => r && clean(r[0]) === 'תאריך רכישה' && r.some((c) => clean(c) === 'מספר שובר'));
+  }
+
+  function parseIsracardExport(rows) {
+    const out = { issuer: 'isracard', format: 'export', statements: [], txns: [], warnings: [] };
+    let st = null; let mode = null; let cols = null;
+    const newSt = (card, name, billing) => ({ card, cardName: name, headerTotal: null, billingDate: billing, rowsTotal: 0, count: 0, statedTotal: null, _dom: null, _abr: null });
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const a = clean(r[0]); const b = clean(r[1]);
+      const cardM = a.match(/^(.*?)\s*-\s*(\d{4})$/);
+      if (cardM && b === 'מועד חיוב') {
+        if (st) out.statements.push(st);
+        st = newSt(cardM[2], cardM[1], toISODate(r[2]));
+        mode = null; continue;
+      }
+      if (/^עסקאות בארץ/.test(a)) { mode = 'dom'; cols = null; continue; }
+      if (/^עסקאות בחו/.test(a)) { mode = 'abr'; cols = null; continue; }
+      if (a === 'תאריך רכישה') { cols = {}; r.forEach((c, j) => { if (clean(c)) cols[clean(c)] = j; }); continue; }
+      if (!st || !cols) continue;
+      // section totals (checked before dates: the domestic total row starts with a date)
+      if (/^סך חיוב/.test(b)) { st._dom = (st._dom || 0) + (num(r[cols['סכום חיוב']]) || 0); cols = null; continue; }
+      if (r.some((c) => clean(c) === 'TOTAL FOR DATE')) { st._abr = (st._abr || 0) + (num(r[cols['סכום מקורי']]) || 0); continue; }
+      const date = toISODate(r[cols['תאריך רכישה']]);
+      if (!date) continue;
+      let t;
+      if (mode === 'abr') {
+        const cur = curCode(r[cols['מטבע מקור']]);
+        t = { issuer: 'isracard', card: st.card, date, merchant: clean(r[cols['שם בית עסק']]),
+          amountOrig: num(r[cols['סכום מקורי']]), currency: cur, amount: num(r[cols['סכום חיוב']]), chargeCurrency: curCode(r[cols['מטבע לחיוב']]),
+          voucher: '', notes: 'חו"ל', sector: '', inst: null, pending: false,
+          billingDate: toISODate(r[cols['תאריך חיוב']]) || st.billingDate, abroad: true, standing: false };
+      } else {
+        const detail = clean(r[cols['פירוט נוסף']]);
+        t = { issuer: 'isracard', card: st.card, date, merchant: clean(r[cols['שם בית עסק']]),
+          amountOrig: num(r[cols['סכום עסקה']]), currency: curCode(r[cols['מטבע מקור']]), amount: num(r[cols['סכום חיוב']]), chargeCurrency: curCode(r[cols['מטבע לחיוב']]),
+          voucher: clean(r[cols['מספר שובר']]), notes: detail, sector: '', inst: parseInstallment(detail), pending: false,
+          billingDate: st.billingDate, abroad: /חו"ל|חו˝ל/.test(detail), standing: /הוראת קבע/.test(detail) };
+      }
+      st.rowsTotal += t.amount || 0; st.count++;
+      out.txns.push(t);
+    }
+    if (st) out.statements.push(st);
+    for (const x of out.statements) {
+      x.rowsTotal = Math.round(x.rowsTotal * 100) / 100;
+      if (x._dom != null || x._abr != null) x.statedTotal = Math.round(((x._dom || 0) + (x._abr || 0)) * 100) / 100;
+      delete x._dom; delete x._abr;
+    }
+    const seen = {};
+    for (const t of out.txns) {
+      const base = t.voucher ? ['isx', t.card, t.voucher, t.inst ? t.inst.n : 0].join('|')
+        : ['isx', t.card, t.date, t.merchant, t.amountOrig, t.currency].join('|');
+      seen[base] = (seen[base] || 0) + 1;
+      t.key = base + (t.voucher ? '' : '|' + seen[base]);
+    }
+    return out;
+  }
+
   /* ---------- Cal / Diners ---------- */
   function isCal(rows) {
     return rows.slice(0, 8).some((r) => r && /המסתיים ב-?\s*\d{4}/.test(clean(r[0]))) ||
@@ -172,6 +233,7 @@
 
   function parseRows(rows) {
     if (isIsracard(rows)) return parseIsracard(rows);
+    if (isIsracardExport(rows)) return parseIsracardExport(rows);
     if (isCal(rows)) return parseCal(rows);
     return null;
   }
