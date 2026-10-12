@@ -211,3 +211,18 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .cardrow.off input[type=text] { color: var(--ink-3); text-decoration: line-through; }
 .cardrow .field { flex: 1 1 auto; min-width: 0; }
 .cardrow .check { flex: 0 0 auto; }
+
+/* category picker */
+.picker { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; text-align: start; font: inherit; color: var(--ink); }
+.picker:hover { border-color: var(--ink-3); }
+.picker .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker .ph { color: var(--ink-3); }
+.picker .chev { color: var(--ink-3); font-size: 12px; }
+.catlist { display: grid; gap: 2px; max-height: 58vh; overflow: auto; }
+.catgroup { font-size: 12px; color: var(--ink-3); padding: 10px 4px 2px; font-weight: 600; }
+.catitem { display: flex; align-items: center; gap: 8px; width: 100%; text-align: start; border: 0; background: none; padding: 10px 8px; border-radius: 8px; cursor: pointer; font: inherit; color: var(--ink); min-height: 44px; }
+.catitem:hover, .catitem:focus-visible { background: var(--surface-2); outline: none; }
+.catitem.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.catitem.extra { color: var(--ink-2); }
+.catitem.new { color: var(--accent); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0; margin-top: 4px; }
+.splitrow .picker { min-width: 0; }

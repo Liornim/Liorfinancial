@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.9'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards
+  const VERSION = '2.0'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -100,6 +100,8 @@
   const D = () => S.data;
   const catById = (id) => D().categories.find((c) => c.id === id);
   const catName = (id) => (catById(id) || {}).name || 'לסיווג';
+  const heCmp = (a, b) => a.localeCompare(b, 'he', { sensitivity: 'base', numeric: true });
+  const sortedCats = (type) => D().categories.filter((c) => !type || c.type === type).slice().sort((a, b) => heCmp(a.name, b.name));
   const expenseCats = () => D().categories.filter((c) => c.type === 'expense');
 
   // Which month a transaction belongs to. Default basis = billing month (the month the card is charged);
@@ -393,7 +395,7 @@
       h('div', { class: 'filters' },
         search,
         h('select', { 'aria-label': 'חודש', title: basisLabel(), onchange: (e) => upd('month', e.target.value) }, h('option', { value: '' }, 'כל החודשים'), months.map((m) => h('option', { value: m, selected: ui.f.month === m }, mLabel(m) + (ui.basis === 'purchase' ? ' (עסקה)' : ' (חיוב)')))),
-        h('select', { 'aria-label': 'קטגוריה', onchange: (e) => upd('cat', e.target.value) }, h('option', { value: '' }, 'כל הקטגוריות'), h('option', { value: '_none', selected: ui.f.cat === '_none' }, 'לסיווג'), D().categories.map((c) => h('option', { value: c.id, selected: ui.f.cat === c.id }, c.name))),
+        catPicker({ value: ui.f.cat, ariaLabel: 'סינון קטגוריה', extras: [{ value: '', label: 'כל הקטגוריות' }, { value: '_none', label: 'לסיווג' }], onChange: (v) => upd('cat', v) }),
         h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c + (ignoredLabels.has(c) ? ' (מוחרג)' : '')))),
         h('div', { class: 'row' },
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.onlyNone, onchange: (e) => upd('onlyNone', e.target.checked) }), 'רק לסיווג'),
@@ -417,7 +419,7 @@
     const chosen = list.filter((t) => ui.sel.has(t.id));
     const sum = chosen.reduce((n, t) => n + (t.amount || 0), 0);
     const all = chosen.length === list.length && list.length > 0;
-    const sel = h('select', { 'aria-label': 'קטגוריה לנבחרות' }, catOptions(null));
+    const sel = catPicker({ ariaLabel: 'קטגוריה לנבחרות', placeholder: 'בחר קטגוריה…' });
     return h('div', { class: 'selbar', role: 'region', 'aria-label': 'פעולות על הנבחרות' },
       h('div', { class: 'row' },
         h('b', null, `נבחרו ${chosen.length}`), chosen.length ? amt(sum) : null,
@@ -466,13 +468,13 @@
 
   const catOptions = (sel, types) => [h('option', { value: '' }, '— לסיווג —'),
     ...['expense', 'transfer', 'income'].filter((ty) => !types || types.includes(ty)).map((ty) => h('optgroup', { label: { expense: 'הוצאות', transfer: 'העברות', income: 'הכנסות' }[ty] },
-      D().categories.filter((c) => c.type === ty).map((c) => h('option', { value: c.id, selected: sel === c.id }, c.name)))),
+      sortedCats(ty).map((c) => h('option', { value: c.id, selected: sel === c.id }, c.name)))),
     h('option', { value: '__new' }, '+ קטגוריה חדשה…')];
 
-  function openNewCategory(onDone) {
+  function openNewCategory(onDone, prefill) {
     let created = null;
     sheet('קטגוריה חדשה', (close) => {
-      const name = h('input', { type: 'text', placeholder: 'למשל: חוגים, רכב — טיפולים, חיסכון לדירה', maxlength: '40' });
+      const name = h('input', { type: 'text', placeholder: 'למשל: חוגים, רכב — טיפולים, חיסכון לדירה', maxlength: '40', value: prefill || '' });
       const budget = h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', placeholder: '0' });
       let type = 'expense';
       const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג' });
@@ -497,7 +499,56 @@
     }, () => onDone(created));
   }
 
-  // any category <select> offering "+ new": remember the previous value, intercept "__new"
+  /* Searchable category picker (A–Z). Behaves like a form control: .value, 'change' event. */
+  const TYPE_LABEL = { expense: 'הוצאות', transfer: 'העברות', income: 'הכנסות' };
+  function catPicker(opts) {
+    const { value, extras, placeholder, onChange, ariaLabel } = opts || {};
+    let val = value || '';
+    const btn = h('button', { type: 'button', class: 'picker', 'aria-label': ariaLabel || 'קטגוריה', 'aria-haspopup': 'dialog' });
+    const label = () => { const ex = (extras || []).find((e) => e.value === val); return ex ? ex.label : val ? catName(val) : (placeholder || '— לסיווג —'); };
+    const paint = () => { btn.replaceChildren(h('span', { class: 'grow' + (!val && !(extras || []).some((e) => e.value === '') ? ' ph' : '') }, label()), h('span', { class: 'chev', 'aria-hidden': 'true' }, '▾')); };
+    Object.defineProperty(btn, 'value', { get: () => val, set: (v) => { val = v || ''; paint(); } });
+    btn.addEventListener('click', () => openCatSearch(val, extras, (v) => {
+      val = v; paint(); btn.dispatchEvent(new Event('change', { bubbles: true })); if (onChange) onChange(v);
+    }));
+    paint();
+    return btn;
+  }
+
+  function openCatSearch(current, extras, pick) {
+    sheet('בחירת קטגוריה', (close) => {
+      const q = h('input', { type: 'search', placeholder: 'חיפוש קטגוריה…', 'aria-label': 'חיפוש קטגוריה', autocomplete: 'off' });
+      const list = h('div', { class: 'catlist', role: 'listbox' });
+      const choose = (v) => { close(); pick(v); };
+      const item = (v, text, cls) => h('button', { type: 'button', role: 'option', class: 'catitem' + (cls ? ' ' + cls : '') + (v === current ? ' on' : ''), 'aria-selected': v === current ? 'true' : 'false', onclick: () => choose(v) },
+        h('span', { class: 'grow' }, text), v === current ? h('span', { 'aria-hidden': 'true' }, '✓') : null);
+      const draw = () => {
+        const term = q.value.trim().toLowerCase();
+        const hit = (name) => !term || name.toLowerCase().includes(term);
+        const kids = [];
+        for (const e of extras || []) if (hit(e.label)) kids.push(item(e.value, e.label, 'extra'));
+        let count = 0;
+        for (const ty of ['expense', 'transfer', 'income']) {
+          const cs = sortedCats(ty).filter((c) => hit(c.name));
+          if (!cs.length) continue;
+          kids.push(h('div', { class: 'catgroup' }, TYPE_LABEL[ty]));
+          cs.forEach((c) => { kids.push(item(c.id, c.name)); count++; });
+        }
+        const exact = term && D().categories.some((c) => c.name.toLowerCase() === term);
+        if (term && !count) kids.push(h('div', { class: 'faint', style: 'padding:8px 4px' }, 'לא נמצאה קטגוריה'));
+        kids.push(h('button', { type: 'button', class: 'catitem new', onclick: () => { close(); openNewCategory((c) => { if (c) pick(c.id); }, exact ? '' : q.value.trim()); } },
+          term && !exact ? `+ יצירת קטגוריה "${q.value.trim()}"` : '+ קטגוריה חדשה…'));
+        list.replaceChildren(...kids);
+      };
+      q.addEventListener('input', draw);
+      q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const first = list.querySelector('.catitem'); if (first) first.click(); } });
+      draw();
+      setTimeout(() => q.focus(), 60);
+      return h('div', { class: 'stack' }, q, list);
+    });
+  }
+
+  // any category <select> offering "+ new\": remember the previous value, intercept "__new"
   document.addEventListener('change', (e) => { if (!S.data && !e.target.closest('.lock')) e.stopImmediatePropagation(); }, true);
   document.addEventListener('focusin', (e) => { if (e.target.tagName === 'SELECT') e.target.dataset.prev = e.target.value; }, true);
   document.addEventListener('change', (e) => {
@@ -518,7 +569,7 @@
   function openTx(t) {
     sheet(t.merchant || 'עסקה', (close) => {
       const p2p = isP2P(t.merchant);
-      const catSel = h('select', { 'aria-label': 'קטגוריה' }, catOptions(t.cat));
+      const catSel = catPicker({ value: t.cat, ariaLabel: 'קטגוריה', extras: [{ value: '', label: '— לסיווג —' }] });
       const learn = h('input', { type: 'checkbox', checked: !p2p && t.source === 'card' });
       const memo = h('input', { type: 'text', value: t.memo || '', placeholder: 'למשל: מתנה ליום הולדת של…' });
       const excluded = h('input', { type: 'checkbox', checked: !!t.excluded });
@@ -528,7 +579,7 @@
         const sum = round2(splits.reduce((n, sp) => n + (+sp.amount || 0), 0));
         splitBox.replaceChildren(
           ...splits.map((sp, i) => h('div', { class: 'splitrow' },
-            h('select', { onchange: (e) => { sp.cat = e.target.value || null; } }, catOptions(sp.cat)),
+            catPicker({ value: sp.cat, ariaLabel: 'קטגוריה לחלק', onChange: (v) => { sp.cat = v || null; } }),
             h('input', { type: 'number', step: '0.01', inputmode: 'decimal', value: sp.amount, oninput: (e) => { sp.amount = +e.target.value; drawSplits.sumOnly(); } }),
             h('button', { class: 'icon-btn', 'aria-label': 'הסרה', onclick: () => { splits.splice(i, 1); drawSplits(); } }, icon('trash')))),
           h('div', { class: 'row' },
@@ -589,7 +640,7 @@
       const desc = h('input', { type: 'text', value: existing ? existing.merchant : '', placeholder: 'למשל: שכר דירה, משכורת, מזומן לשוק' });
       const amount = h('input', { type: 'number', step: '0.01', min: '0', inputmode: 'decimal', value: existing ? Math.abs(existing.amount) : '' });
       const src = h('select', null, h('option', { value: 'bank', selected: !existing || existing.source === 'bank' }, 'בנק'), h('option', { value: 'cash', selected: existing && existing.source === 'cash' }, 'מזומן'));
-      const cat = h('select', null, catOptions(existing ? existing.cat : null));
+      const cat = catPicker({ value: existing ? existing.cat : null, ariaLabel: 'קטגוריה', extras: [{ value: '', label: '— לסיווג —' }] });
       const memo = h('input', { type: 'text', value: existing ? existing.memo || '' : '' });
       const repeat = h('input', { type: 'number', min: '1', max: '36', value: '1', inputmode: 'numeric' });
       const seg = h('div', { class: 'seg', role: 'group' });
@@ -822,10 +873,12 @@
     const m = ui.month;
     const catBox = h('div');
     const types = { expense: 'הוצאה', transfer: 'העברה (לא נספר)', income: 'הכנסה' };
+    let catQ = '';
+    const catSearch = h('input', { type: 'search', placeholder: 'חיפוש קטגוריה…', 'aria-label': 'חיפוש קטגוריה', oninput: (e) => { catQ = e.target.value.trim().toLowerCase(); drawCats(); } });
     const drawCats = () => catBox.replaceChildren(
-      h('div', { class: 'catedit faint', style: 'border:0' }, h('span', null, 'שם'), h('span', null, 'תקציב חודשי'), h('span', { class: 'typesel' }, 'סוג'), h('span')),
-      ...D().categories.map((c) => h('div', { class: 'catedit' },
-        h('input', { type: 'text', value: c.name, 'aria-label': 'שם קטגוריה', onchange: (e) => { c.name = e.target.value.trim() || c.name; S.save(); } }),
+      h('div', { class: 'catedit faint', style: 'border:0' }, h('span', null, 'שם (א–ב)'), h('span', null, 'תקציב חודשי'), h('span', { class: 'typesel' }, 'סוג'), h('span')),
+      ...D().categories.slice().sort((a, b) => heCmp(a.name, b.name)).filter((c) => !catQ || c.name.toLowerCase().includes(catQ)).map((c) => h('div', { class: 'catedit' },
+        h('input', { type: 'text', value: c.name, 'aria-label': 'שם קטגוריה', onchange: (e) => { c.name = e.target.value.trim() || c.name; S.save(); drawCats(); } }),
         h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', value: c.budget || '', placeholder: '0', disabled: c.type !== 'expense', 'aria-label': 'תקציב', onchange: (e) => { c.budget = Math.max(0, +e.target.value || 0); S.save(); } }),
         h('select', { class: 'typesel', 'aria-label': 'סוג', onchange: (e) => { c.type = e.target.value; S.save(); drawCats(); } }, Object.entries(types).map(([k, v]) => h('option', { value: k, selected: c.type === k }, v))),
         h('button', { class: 'icon-btn', 'aria-label': 'מחיקת קטגוריה', onclick: () => {
@@ -838,7 +891,7 @@
               S.save(); close(); render(); } }, 'מחיקה'), h('button', { class: 'btn', onclick: close }, 'ביטול'))));
         } }, icon('trash')))),
       h('div', { class: 'row', style: 'margin-top:10px' },
-        h('button', { class: 'btn', onclick: () => { D().categories.push({ id: uid(), name: 'קטגוריה חדשה', type: 'expense', budget: 0 }); S.save(); drawCats(); const ins = catBox.querySelectorAll('.catedit input[type=text]'); const last = ins[ins.length - 1]; last.focus(); last.select(); } }, '+ קטגוריה'),
+        h('button', { class: 'btn', onclick: () => openNewCategory((c) => { if (c) { catQ = ''; catSearch.value = ''; drawCats(); } }) }, '+ קטגוריה'),
         h('span', { class: 'faint' }, 'סה"כ תקציב חודשי: ', amt(expenseCats().reduce((n, c) => n + (c.budget || 0), 0)))));
     drawCats();
 
@@ -850,7 +903,7 @@
         h('b', null, mLabel(m)),
         h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.month = addMonths(m, 1); render(); } }, icon('next'))),
       h('div', { class: 'faint' }, 'השאר ריק כדי להשתמש בתקציב הקבוע. רלוונטי לחודשים חריגים (חגים, חופשה).'),
-      h('div', { class: 'fields' }, expenseCats().map((c) => h('label', { class: 'field' }, h('span', null, c.name + ` (קבוע ${ils(c.budget || 0)})`),
+      h('div', { class: 'fields' }, sortedCats('expense').map((c) => h('label', { class: 'field' }, h('span', null, c.name + ` (קבוע ${ils(c.budget || 0)})`),
         h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', value: ov[c.id] != null ? ov[c.id] : '', onchange: (e) => {
           D().budgets[m] = D().budgets[m] || {};
           if (e.target.value === '') delete D().budgets[m][c.id]; else D().budgets[m][c.id] = Math.max(0, +e.target.value);
@@ -862,7 +915,7 @@
 
     return h('main', { class: 'stack' },
       h('h1', null, 'הגדרות'),
-      h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות ותקציב קבוע')), catBox),
+      h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות ותקציב קבוע')), h('div', { style: 'margin-bottom:8px' }, catSearch), catBox),
       h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'תקציב לחודש מסוים')), ovBox),
       h('section', { class: 'card stack' },
         h('h2', null, 'כללי'),
