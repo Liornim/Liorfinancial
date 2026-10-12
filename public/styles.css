@@ -234,3 +234,12 @@ button.pill { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
 .filters .amtrow { grid-column: 1 / -1; }
 .amtf input { direction: ltr; text-align: right; -moz-appearance: textfield; }
 .amtf input::-webkit-outer-spin-button, .amtf input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* rules */
+.rulelist { display: grid; }
+.rule { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rule .rmain { flex: 1 1 220px; min-width: 0; cursor: pointer; }
+.rule .rmain b { word-break: break-word; }
+.rule .ractions { display: flex; gap: 6px; }
+/* room to scroll the last button out from under the floating "+" */
+@media (max-width: 759px) { .shell { padding-bottom: calc(150px + env(safe-area-inset-bottom)); } }
