@@ -44,7 +44,7 @@ jobs:
           sleep 15
           { echo "deploy/setup_code: $OUTCOME  sha: ${GITHUB_SHA:0:7}";
             echo '### deploy log (tail)'; tail -c 2500 /tmp/deploy.log | sed -E 's/[A-Za-z0-9_-]{30,}/[redacted]/g';
-            echo; echo '### /api/meta'; curl -s -m 20 $W/api/meta;
+            echo; echo '### vault initialized'; curl -s -m 20 $W/api/meta | grep -o '"initialized":[a-z]*';
             echo; echo '### GET / headers'; curl -sI -m 20 $W/ | grep -iE '^(HTTP|content-security|x-frame|cache-control)';
             echo '### GET /api/data without auth'; curl -s -m 20 -o /dev/null -w '%{http_code}' $W/api/data; } > /tmp/report.txt 2>&1
           python3 - <<'PY'
