@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.9'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending
+  const VERSION = '3.0'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -1139,30 +1139,45 @@
       const on = !exists && r.cat !== 'שונות' && (r.confidence || 'high') !== 'low';
       return { ...r, kind, text, n, exists, on };
     });
+    for (const x of items) { const c = catByName(x.cat); x.catId = c ? c.id : '__new'; }
+    let conf = 'all';
+    const CONF = { high: 'בטוח', medium: 'סביר', low: 'ניחוש' };
     sheet('ייבוא חוקים', (close) => {
-      const list = h('div', { class: 'matchlist', style: 'max-height:50vh' });
+      const list = h('div', { class: 'matchlist', style: 'max-height:52vh' });
       const count = h('b');
+      const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סינון לפי ביטחון' });
+      const visible = () => items.filter((x) => conf === 'all' || (x.confidence || 'high') === conf);
       const draw = () => {
-        count.textContent = `${items.filter((x) => x.on).length} נבחרו`;
-        list.replaceChildren(...items.map((x) => h('label', { class: 'mrow imp' + (x.on ? '' : ' off') },
-          h('input', { type: 'checkbox', checked: x.on, disabled: x.exists, onchange: (e) => { x.on = e.target.checked; draw(); } }),
-          h('span', { class: 'mname' }, x.text, h('div', { class: 'faint' }, [x.note, x.exists ? 'כבר קיים' : `${x.n} עסקאות`].filter(Boolean).join(' · '))),
-          h('span', { class: 'mcat' }, x.cat + (catByName(x.cat) ? '' : ' (חדשה)')),
-          h('span', { class: 'pill' + (x.confidence === 'low' ? ' warn' : '') }, { high: 'בטוח', medium: 'סביר', low: 'ניחוש' }[x.confidence || 'high']))));
+        const v = visible();
+        count.textContent = `${items.filter((x) => x.on).length} נבחרו מתוך ${items.length}`;
+        seg.replaceChildren(...[['all', 'הכל'], ['high', 'בטוח'], ['medium', 'סביר'], ['low', 'ניחוש']].map(([k, lbl]) => {
+          const n = k === 'all' ? items.length : items.filter((x) => (x.confidence || 'high') === k).length;
+          return h('button', { type: 'button', 'aria-pressed': conf === k ? 'true' : 'false', onclick: () => { conf = k; draw(); } }, `${lbl} (${n})`);
+        }));
+        list.replaceChildren(...v.map((x) => {
+          const pick = catPicker({ value: x.catId, ariaLabel: 'קטגוריה ל' + x.text, extras: x.catId === '__new' || !catByName(x.cat) ? [{ value: '__new', label: x.cat + ' (חדשה)' }] : [],
+            onChange: (val) => { x.catId = val; if (val && !x.exists) { x.on = true; draw(); } } });
+          return h('div', { class: 'mrow imp' + (x.on ? '' : ' off') },
+            h('input', { type: 'checkbox', checked: x.on, disabled: x.exists, 'aria-label': 'לייבא ' + x.text, onchange: (e) => { x.on = e.target.checked; draw(); } }),
+            h('span', { class: 'mname' }, x.text, h('div', { class: 'faint' }, [x.note, x.exists ? 'כבר קיים' : `${x.n} עסקאות`].filter(Boolean).join(' · '))),
+            h('span', { class: 'imppick' }, pick),
+            h('span', { class: 'pill' + ((x.confidence || 'high') === 'low' ? ' warn' : '') }, CONF[x.confidence || 'high']));
+        }));
       };
       draw();
       const includeManual = h('input', { type: 'checkbox', checked: false });
       return h('div', { class: 'stack' },
-        h('div', { class: 'faint' }, 'מסומנים מראש: בטוח וסביר. "ניחוש" ו"שונות" לא מסומנים — סמן רק אם אתה מסכים. קטגוריות חסרות ייווצרו.'),
+        h('div', { class: 'faint' }, 'מסומנים מראש: בטוח וסביר (חוץ מ"שונות"). אפשר לשנות קטגוריה בכל שורה לפני הייבוא — שינוי מסמן את השורה. קטגוריות חסרות ייווצרו.'),
+        seg,
         h('div', { class: 'row' }, count, h('div', { class: 'grow' }),
-          h('button', { class: 'btn small', onclick: () => { items.forEach((x) => { if (!x.exists) x.on = true; }); draw(); } }, 'סמן הכל'),
-          h('button', { class: 'btn small', onclick: () => { items.forEach((x) => { x.on = false; }); draw(); } }, 'נקה')),
+          h('button', { class: 'btn small', onclick: () => { visible().forEach((x) => { if (!x.exists) x.on = true; }); draw(); } }, 'סמן את המוצגים'),
+          h('button', { class: 'btn small', onclick: () => { visible().forEach((x) => { x.on = false; }); draw(); } }, 'נקה את המוצגים')),
         list,
         h('label', { class: 'check faint' }, includeManual, 'להחיל גם על עסקאות שסיווגתי ידנית'),
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
           let made = 0, cats = 0, tx = 0;
           for (const x of items.filter((i) => i.on)) {
-            let c = catByName(x.cat);
+            let c = x.catId && x.catId !== '__new' ? catById(x.catId) : catByName(x.cat);
             if (!c) { c = { id: uid(), name: x.cat, type: 'expense', budget: 0 }; D().categories.push(c); cats++; }
             const r = { id: uid(), kind: x.kind, text: x.text, cat: c.id, auto: false, min: '', max: '' };
             D().rules.unshift(r); made++; tx += runRule(r, includeManual.checked);
