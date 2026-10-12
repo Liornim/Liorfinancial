@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '1.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions
+  const VERSION = '1.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -700,6 +700,20 @@
     const inRange = D().txns.filter((t) => months.includes(monthOf(t)) && !t.excluded && t.dir !== 'in' && t.amount != null && !(catById(t.cat) && catById(t.cat).type !== 'expense'));
     for (const t of inRange) { const k = normMerchant(t.merchant); (merch[k] = merch[k] || { name: t.merchant, sum: 0, n: 0 }); merch[k].sum += t.amount; merch[k].n++; }
     const top = Object.values(merch).sort((a, b) => b.sum - a.sum).slice(0, 15);
+
+    // by card: everything charged to each card (all categories, like the bill itself), per month in range
+    const byCard = {};
+    for (const t of D().txns) {
+      if (t.amount == null || t.dir === 'in') continue;
+      const mi = months.indexOf(monthOf(t)); if (mi < 0) continue;
+      const k = cardLabel(t);
+      const r = (byCard[k] = byCard[k] || { label: k, vals: months.map(() => 0), n: 0, abroad: 0, sum: 0 });
+      r.vals[mi] += t.amount; r.n++; r.sum += t.amount; if (t.abroad) r.abroad += t.amount;
+    }
+    const cardRows = Object.values(byCard).sort((a, b) => b.sum - a.sum);
+    const cardMonthTotals = months.map((_, i) => cardRows.reduce((n, r) => n + r.vals[i], 0));
+    const cardGrand = cardRows.reduce((n, r) => n + r.sum, 0);
+    const shownIdx = months.map((_, i) => i).filter((i) => cardMonthTotals[i]);
     const abroad = inRange.filter((t) => t.abroad).reduce((n, t) => n + t.amount, 0);
     const standing = inRange.filter((t) => t.standing).reduce((n, t) => n + t.amount, 0);
     const totalRange = inRange.reduce((n, t) => n + t.amount, 0);
@@ -719,6 +733,18 @@
         h('div', { class: 'section-title' }, h('h2', null, 'הוצאות לפי חודש'), h('span', { class: 'faint' }, `ממוצע (${active} ח׳ עם נתונים) `, amt(stats.reduce((n, s) => n + s.spent, 0) / active))),
         barChart(stats.map((s) => ({ m: s.m, label: mShort(s.m), full: mLabel(s.m), value: s.spent, budget: s.budget, cur: s.m === ui.month }))),
         h('div', { class: 'legend' }, h('span', null, h('i'), 'הוצאות'), h('span', { class: 'faint' }, 'לחיצה על עמודה או מספר מציגה את העסקאות'), stats.some((s) => s.budget) ? h('span', null, h('i', { class: 'line' }), 'תקציב') : null)),
+      cardRows.length ? h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', null, 'לפי כרטיס'), h('span', { class: 'faint' }, ui.basis === 'purchase' ? 'סכום הרכישות בכל כרטיס' : 'כמה חויב בכל כרטיס — כולל העברות, כמו בדף החיוב')),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
+          h('thead', null, h('tr', null, h('th', null, 'כרטיס'), shownIdx.map((i) => h('th', { class: 'n' }, mShort(months[i]))), h('th', { class: 'n' }, 'סה"כ'), h('th', { class: 'n' }, 'מהסך'), h('th', { class: 'n' }, 'עסקאות'), h('th', { class: 'n' }, 'חו"ל'))),
+          h('tbody', null,
+            cardRows.map((r) => h('tr', null, dc({ card: r.label }, '', null, r.label),
+              shownIdx.map((i) => r.vals[i] ? dc({ card: r.label, month: months[i] }, 'n', null, nf0.format(r.vals[i])) : h('td', { class: 'n faint' }, '·')),
+              dc({ card: r.label }, 'n', null, h('b', null, nf0.format(r.sum))),
+              h('td', { class: 'n faint' }, cardGrand ? Math.round((r.sum / cardGrand) * 100) + '%' : ''),
+              h('td', { class: 'n' }, r.n),
+              h('td', { class: 'n faint' }, r.sum ? Math.round((r.abroad / r.sum) * 100) + '%' : ''))),
+            h('tr', { class: 'total' }, h('td', null, 'סה"כ'), shownIdx.map((i) => dc({ month: months[i] }, 'n', null, nf0.format(cardMonthTotals[i]))), h('td', { class: 'n' }, nf0.format(cardGrand)), h('td'), h('td', { class: 'n' }, cardRows.reduce((n, r) => n + r.n, 0)), h('td')))))) : null,
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות לאורך זמן'), h('span', { class: 'faint' }, 'כהה יותר = יותר כסף')),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
