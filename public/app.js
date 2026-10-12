@@ -1,9 +1,9 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.1'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in)
+  const VERSION = '2.2'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter
   const VERSION_DATE = '12.10.26';
-  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
+  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '' });
   const S = window.KupaStore;
   const P = window.KupaParsers;
   const $app = document.getElementById('app');
@@ -370,6 +370,8 @@
       if (!f.card && ignoredCard(t)) return false;
       if (f.abroad && !t.abroad) return false;
       if (f.standing && !t.standing) return false;
+      if (f.min !== '' && f.min != null && !(t.amount != null && t.amount >= +f.min)) return false;
+      if (f.max !== '' && f.max != null && !(t.amount != null && t.amount <= +f.max)) return false;
       if (f.onlyNone && (t.cat || (t.splits && t.splits.length) || t.excluded)) return false;
       if (f.cat) {
         if (f.cat === '_none') { if (t.cat || (t.splits && t.splits.length)) return false; }
@@ -388,7 +390,10 @@
     const hiddenCount = ui.f.card ? 0 : D().txns.filter(ignoredCard).length;
     const months = allMonths().reverse();
     const upd = (k, v) => { ui.f[k] = v; render(); };
-    let qTimer;
+    let qTimer, aTimer;
+    const amountInput = (key, label) => h('label', { class: 'amtf' }, h('span', null, label),
+      h('input', { type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '—', value: ui.f[key] == null ? '' : ui.f[key], 'aria-label': label + ' (₪)', 'data-amt': key,
+        oninput: (e) => { clearTimeout(aTimer); const v = e.target.value; aTimer = setTimeout(() => { ui.f[key] = v; render(); const el = document.querySelector(`input[data-amt="${key}"]`); if (el) el.focus(); }, 450); } }));
     const search = h('input', { type: 'search', placeholder: 'חיפוש בית עסק או הערה', value: ui.f.q, 'aria-label': 'חיפוש',
       oninput: (e) => { clearTimeout(qTimer); const v = e.target.value; qTimer = setTimeout(() => { ui.f.q = v; render(); const el = document.querySelector('input[type=search]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); } });
 
@@ -401,9 +406,10 @@
         h('select', { 'aria-label': 'כרטיס', onchange: (e) => upd('card', e.target.value) }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.f.card === c }, c + (ignoredLabels.has(c) ? ' (מוחרג)' : '')))),
         h('div', { class: 'row' },
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.onlyNone, onchange: (e) => upd('onlyNone', e.target.checked) }), 'רק לסיווג'),
-          h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל'))),
+          h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: ui.f.abroad, onchange: (e) => upd('abroad', e.target.checked) }), 'חו"ל')),
+        h('div', { class: 'row amtrow' }, amountInput('min', 'מ-₪'), amountInput('max', 'עד ₪'))),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
-        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad || ui.f.standing) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
+        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.onlyNone || ui.f.abroad || ui.f.standing || ui.f.min !== '' || ui.f.max !== '') ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
         hiddenCount ? h('span', { class: 'faint' }, `· ${hiddenCount} מכרטיסים מוחרגים מוסתרות`) : null,
         ui.f.card && ignoredLabels.has(ui.f.card) ? h('span', { class: 'pill warn' }, 'כרטיס מוחרג — לא נספר') : null,
         ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
