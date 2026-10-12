@@ -258,3 +258,11 @@ input[type=month] { border: 1px solid var(--line); background: var(--surface); b
 .mrange { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .filters .mrange, .filters .basisnote { grid-column: 1 / -1; }
 @media (min-width: 760px) { .filters .mrange { grid-column: auto / span 2; } }
+
+/* quick classify */
+.qlist { display: grid; gap: 10px; }
+.qcard { display: grid; gap: 8px; padding: 12px 14px; }
+.qcard.sure { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.qwhy { font-size: 13px; }
+.qcard.sure .qwhy { color: var(--ok); }
+.qrow { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }

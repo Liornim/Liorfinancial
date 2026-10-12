@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters
+  const VERSION = '2.8'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -322,7 +322,7 @@
 
   function render() {
     if (!S.data) return;
-    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules };
+    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify };
     $app.replaceChildren(shell(views[ui.view]()));
   }
 
@@ -366,8 +366,10 @@
         kpi('תקציב', st.budget ? amt(st.budget) : h('button', { class: 'value', onclick: () => setView('settings') }, 'להגדרה ›')),
         kpi(left >= 0 ? 'נותר' : 'חריגה', amt(Math.abs(left)), st.budget && left < 0 ? 'over' : ''),
         kpi('הכנסות', amt(st.income))),
-      st.unclassified ? h('div', { class: 'notice', role: 'button', tabindex: 0, onclick: () => drill({ month: m, onlyNone: true }) },
-        `${st.unclassified} עסקאות לסיווג (`, amt(st.unclassifiedSum), ') — לחץ לסיווג ›') : null,
+      st.unclassified ? h('div', { class: 'notice row' },
+        h('span', { class: 'grow' }, `${st.unclassified} עסקאות לסיווג (`, amt(st.unclassifiedSum), ')'),
+        h('button', { class: 'btn small primary', onclick: () => setView('classify', { back: 'month' }, true) }, 'סיווג מהיר ›'),
+        h('button', { class: 'btn small', onclick: () => drill({ month: m, onlyNone: true }) }, 'רשימה')) : null,
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'תקציב מול ביצוע'), h('span', { class: 'faint' }, 'לחיצה על קטגוריה מציגה את העסקאות')),
         rows.length ? h('div', { class: 'budgets' }, rows) : h('div', { class: 'empty' }, 'אין עדיין נתונים לחודש הזה. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); setView('import'); } }, 'ייבוא קובץ ›')),
@@ -453,7 +455,7 @@
       oninput: (e) => { clearTimeout(qTimer); const v = e.target.value; qTimer = setTimeout(() => { ui.f.q = v; render(); const el = document.querySelector('input[type=search]'); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } }, 250); } });
 
     return h('main', { class: 'stack' },
-      ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה ל' + ({ reports: 'דוחות', month: 'חודש', rules: 'חוקי סיווג' }[ui.back] || 'קודם'))) : null,
+      ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה ל' + ({ reports: 'דוחות', month: 'חודש', rules: 'חוקי סיווג', classify: 'סיווג מהיר' }[ui.back] || 'קודם'))) : null,
       h('div', { class: 'filters' },
         search,
         h('div', { class: 'mrange' },
@@ -477,6 +479,7 @@
         ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
         h('select', { class: 'sortsel', 'aria-label': 'מיון', style: 'margin-inline-start:auto', onchange: (e) => { ui.sort = e.target.value; try { sessionStorage.setItem('kupa-sort', ui.sort); } catch (x) { /* ignore */ } render(); } },
           Object.entries(SORTS).map(([k, v]) => h('option', { value: k, selected: ui.sort === k }, '↕ ' + v.label))),
+        h('button', { class: 'btn small', onclick: () => setView('classify', { back: 'txns' }, true) }, 'סיווג מהיר'),
         h('button', { class: 'btn small' + (ui.selMode ? ' primary' : ''), onclick: () => { ui.selMode = !ui.selMode; ui.sel.clear(); render(); } }, ui.selMode ? 'סיום בחירה' : 'בחירה מרובה')),
       h('section', { class: 'card', style: 'padding:4px 12px' },
         list.length ? h('div', { class: 'txlist' }, list.slice(0, 500).map(txRow)) : h('div', { class: 'empty' }, 'אין עסקאות שמתאימות לסינון'),
@@ -954,6 +957,126 @@
     return wrap;
   }
 
+  /* ---------------- quick classify: group unclassified by merchant, suggest, accept in one tap ---------------- */
+  // keyword -> preferred category names (first one that exists wins; otherwise offer to create the first)
+  const LEX = [
+    [/דוג |\bDOG\b|חיות|\bPETS?\b|וטרינר|VET\b|אניפט|זו פט/i, ['חיות מחמד', 'פנאי ובילוי']],
+    [/ALIEXPRESS|AMAZON(?! PRIME)|EBAY|SHEIN|TEMU|ASOS|IHERB/i, ['קניות אונליין']],
+    [/מסעד|קפה|CAFE|COFFEE|פיצ|PIZZA|בורגר|BURGER|סושי|SUSHI|שווארמ|פלאפל|חומוס|גלידה|ICE CREAM|מאפה|קונדיטור|BAKERY|בר |BAR |PUB|גריל|GRILL|KITCHEN|ביסטרו|BISTRO|טאקו|TACO|נודלס|NOODLE|RAMEN|DONUT|DOUGHNUT|MCDONALD|KFC|DOMINO|ארומה|קפולסקי|לנדוור|WOLT|וולט|10BIS|תן ביס|CIBUS|סיבוס|STARBUCKS|RESTAURANT|DINER|EATERY|BRASSERIE|TRATTORIA|קייטרינג/i, ['אוכל בחוץ ומשלוחים']],
+    [/סופר|מרקט|MARKET|מכולת|שופרסל|רמי לוי|ויקטורי|יוחננוף|טיב טעם|אושר עד|קרפור|CARREFOUR|AM:PM|יינות ביתן|חצי חינם|מעדני|ירקות|פירות|קצב|אטליז|דגים|WALMART|TARGET|COSTCO|SAFEWAY|TRADER JOE|WHOLE FOODS|7-ELEVEN|LIDL|ALDI|SPAR|BILLA|KAUFLAND|TESCO/i, ['סופר ומכולת']],
+    [/סונול|SONOL|\bפז\b|PAZ|דלק|DELEK|דור אלון|\bTEN\b|YELLOW|תחנת|חני|PANGO|פנגו|סלופארק|CELLOPARK|מוסך|צמיגים|טסט|רישוי|ליסינג|שטיפת|וואש|WASH|CHEVRON|SHELL|ARCO|EXXON|PARKING|CITYOF.*P|OFFSTREET/i, ['רכב ודלק']],
+    [/GETT|YANGO|UBER|LYFT|BOLT|מונית|רב.?קו|רכבת|אגד|\bדן\b|MOOVIT|אוטובוס|TAXI|METRO|TRANSIT/i, ['תחבורה ומוניות']],
+    [/ביטוח|INSURANCE|הראל|מגדל|כלל ביטוח|הפניקס|מנורה|AIG|ליברה|ביטוח ישיר|9 ביטוח/i, ['ביטוחים', 'ביטוח']],
+    [/פארם|PHARM|בית מרקחת|CVS|WALGREENS|טיפוח|קוסמטיקה|SEPHORA|BEAUTY|מספרה|BARBER|ציפורניים|NAIL/i, ['פארם וטיפוח']],
+    [/רופא|מרפא|קופ.?ח|מכבי|כללית|מאוחדת|לאומית|שיניים|DENTAL|אופטיק|OPTIC|פיזיותרפ|CLINIC|HOSPITAL|בית חולים|ד"ר /i, ['בריאות']],
+    [/NETFLIX|SPOTIFY|APPLE\.COM|ITUNES|GOOGLE|YOUTUBE|DISNEY|HBO|AMAZON PRIME|OPENAI|CHATGPT|ANTHROPIC|CLAUDE|MICROSOFT|ADOBE|DROPBOX|ICLOUD|פרטנר|סלקום|הוט |\bHOT\b|בזק|גולן טלקום|פלאפון|YES\b|STING|סלולר|אינטרנט/i, ['מנויים ותקשורת']],
+    [/ZARA|H&M|קסטרו|CASTRO|פוקס|\bFOX\b|NIKE|ADIDAS|TERMINAL X|טרמינל X|PRIMARK|UNIQLO|GAP\b|LEVI|MANGO|PULL&BEAR|BERSHKA|STRADIVARIUS|AMERICAN EAGLE|MICHAEL KORS|ביגוד|הנעלה|נעליים|SHOES|SKECHERS|FOOT LOCKER/i, ['ביגוד והנעלה']],
+    [/KSP|באג|IVORY|איבורי|BEST BUY|אלקטרוניקה|מחשב|COMPUTER|APPLE STORE|סמסונג|SAMSUNG|DJI/i, ['אלקטרוניקה']],
+    [/אל על|ELAL|EL AL|ISRAIR|ישראייר|ארקיע|AIRLINE|AIRWAYS|AIR |WIZZ|RYANAIR|EASYJET|AIRBNB|BOOKING|HOTEL|מלון|INN\b|SUITES|HOSTEL|EXPEDIA|HERTZ|AVIS|SIXT|ENTERPRISE|DUTY FREE|מט"ח|FLYING ?MONEY|פליי מאני|היינמן|JR\.?-?HEINEMANN|ג'יי\.אר/i, ['חו"ל ונסיעות']],
+    [/ארנונה|מועצה|עירי|חשמל|חברת החשמל|מים|מי |תאגיד|גז|סופרגז|אמישראגז|ועד בית|שכר דירה|IKEA|איקאה|\bACE\b|הום סנטר|HOME CENTER|כלי בית|מטבח/i, ['בית']],
+    [/משרד|רשות|אגרה|ביטוח לאומי|מס הכנסה|דואר|האוכלוסין|DMV|GOV/i, ['אגרות וממשלה']],
+    [/קורס|לימוד|אוניברסיט|מכללה|UDEMY|COURSERA|ספרים|BOOK|סטימצקי|צומת ספרים|חוג|גן ילדים|צהרון|חטיבת|בית ספר|תיכון|ישיבת|אולפנ/i, ['לימודים וקורסים', 'חוגים']],
+    [/סינמה|CINEMA|יס פלאנט|קולנוע|תיאטרון|הופעה|כרטיסים|EVENTIM|TICKET|טיקט|טיקצ|לאן|LEAAN|כושר|FITNESS|GYM|הולמס|דאנס|DANCE|קאנטרי|STEAM|PLAYSTATION|XBOX|NINTENDO|RIOT|CASINO|מוזיאון|MUSEUM|פארק/i, ['פנאי ובילוי']],
+    [/מתנ|GIFT|פרחים|FLOWERS|צעצוע|TOYS/i, ['מתנות']],
+  ];
+  const STOP = new Set(['בע"מ', 'בעמ', 'ISRAEL', 'ישראל', 'IL', 'LTD', 'INC', 'COM', 'WWW', 'סניף', 'THE', 'AND', 'של', 'ושות']);
+  const tokens = (m) => normMerchant(m).replace(/[^A-Z֐-׿0-9 ]/gi, ' ').split(/\s+/).filter((w) => w.length >= 3 && !STOP.has(w) && !/^\d+$/.test(w));
+  const catByName = (n) => D().categories.find((c) => c.name === n);
+
+  function suggestFor(group) {
+    const m = group.merchant;
+    if (isP2P(m)) return { cat: null, why: 'העברה בין אנשים — אין דרך לנחש', sure: false };
+    // 1) your own decisions on a similar merchant (shares its first meaningful word)
+    const tk = tokens(m); const first = tk[0];
+    if (first) {
+      const votes = {};
+      for (const t of D().txns) {
+        if (!t.cat || t.splits || !(t.catSrc === 'manual' || (t.catSrc === 'rule' && t.ruleId && ruleById(t.ruleId) && !ruleById(t.ruleId).auto))) continue;
+        if (normMerchant(t.merchant) === group.norm) continue;
+        if (tokens(t.merchant)[0] === first) votes[t.cat] = (votes[t.cat] || 0) + 1;
+      }
+      const best = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+      if (best) { const total = Object.values(votes).reduce((a, b) => a + b, 0);
+        return { cat: best[0], why: `סיווגת ככה בית עסק דומה ("${first}")`, sure: best[1] / total >= 0.8 }; }
+    }
+    // 2) keywords
+    for (const [re, names] of LEX) {
+      if (!re.test(m)) continue;
+      const hit = m.match(re)[0].trim();
+      const c = names.map(catByName).find(Boolean);
+      return c ? { cat: c.id, why: `השם מכיל "${hit}"`, sure: true } : { cat: null, create: names[0], why: `השם מכיל "${hit}" — אין לך קטגוריה "${names[0]}"`, sure: false };
+    }
+    // 3) weak hints
+    if (group.txns.every((t) => t.abroad)) { const c = catByName('חו"ל ונסיעות'); if (c) return { cat: c.id, why: 'כל העסקאות בחו"ל', sure: false }; }
+    const months = new Set(group.txns.map((t) => t.date.slice(0, 7)));
+    if (group.txns.length >= 3 && months.size >= 3 && !group.txns.some((t) => t.inst) && new Set(group.txns.map((t) => Math.round(t.amount || 0))).size === 1) {
+      const c = catByName('מנויים ותקשורת'); if (c) return { cat: c.id, why: `אותו סכום כל חודש (${months.size} חודשים) — אולי מנוי או הוראת קבע`, sure: false };
+    }
+    return { cat: null, why: 'אין לי ניחוש', sure: false };
+  }
+
+  function unclassifiedGroups() {
+    const g = new Map();
+    for (const t of D().txns) {
+      if (t.cat || (t.splits && t.splits.length) || t.excluded || t.source !== 'card' || ignoredCard(t) || t.dir === 'in') continue;
+      const k = normMerchant(t.merchant);
+      if (!g.has(k)) g.set(k, { norm: k, merchant: t.merchant, txns: [], sum: 0 });
+      const x = g.get(k); x.txns.push(t); x.sum += t.amount || 0;
+    }
+    const list = [...g.values()];
+    for (const x of list) { x.sug = suggestFor(x); x.p2p = isP2P(x.merchant); }
+    return list.sort((a, b) => (a.p2p - b.p2p) || b.sum - a.sum);
+  }
+
+  function acceptGroup(x, catId, remember) {
+    let n = 0;
+    for (const t of x.txns) { t.cat = catId; t.catSrc = 'manual'; t.ruleId = null; t.splits = null; n++; }
+    if (remember && catId) {
+      D().rules = D().rules.filter((r) => !(r.kind === 'exact' && r.text === x.norm && !hasCond(r)));
+      const r = { id: uid(), kind: 'exact', text: x.norm, cat: catId, auto: false, min: '', max: '' };
+      D().rules.unshift(r); n += runRule(r, false);
+    }
+    return n;
+  }
+
+  function viewClassify() {
+    const groups = unclassifiedGroups();
+    const sure = groups.filter((x) => x.sug.sure && x.sug.cat);
+    const nTx = groups.reduce((n, x) => n + x.txns.length, 0);
+    ui.skip = ui.skip || new Set();
+    const shown = groups.filter((x) => !ui.skip.has(x.norm));
+    return h('main', { class: 'stack' },
+      ui.back ? h('div', null, h('button', { class: 'btn small', onclick: () => { try { history.back(); } catch (e) { setView(ui.back); } } }, '› חזרה')) : null,
+      h('h1', null, 'סיווג מהיר'),
+      groups.length ? h('div', { class: 'faint' }, `${nTx} עסקאות לא מסווגות ב-${groups.length} בתי עסק. ההצעות מחושבות במכשיר שלך בלבד. אישור יוצר חוק לבית העסק, כך שבפעם הבאה זה יקרה לבד.`) : null,
+      sure.length ? h('div', { class: 'notice info row' },
+        h('span', { class: 'grow' }, `${sure.length} בתי עסק עם הצעה ברורה (${sure.reduce((n, x) => n + x.txns.length, 0)} עסקאות)`),
+        h('button', { class: 'btn primary small', onclick: () => {
+          let n = 0; for (const x of sure) n += acceptGroup(x, x.sug.cat, true);
+          S.save(); toast(`סווגו ${n} עסקאות ונוצרו ${sure.length} חוקים`); render();
+        } }, 'אשר את כל הברורים')) : null,
+      !groups.length ? h('div', { class: 'card empty' }, 'אין עסקאות לסיווג 🎉') : null,
+      h('div', { class: 'qlist' }, shown.slice(0, 80).map((x) => {
+        const pick = catPicker({ value: x.sug.cat, ariaLabel: 'קטגוריה ל' + x.merchant, placeholder: 'בחר קטגוריה…' });
+        const remember = h('input', { type: 'checkbox', checked: !x.p2p });
+        const dates = x.txns.map((t) => t.date).sort();
+        return h('section', { class: 'card qcard' + (x.sug.sure ? ' sure' : '') },
+          h('div', { class: 'row' },
+            h('div', { class: 'grow' }, h('b', null, x.merchant), h('div', { class: 'faint' }, `${x.txns.length} עסקאות · ${dShort(dates[0])}${dates.length > 1 ? '–' + dShort(dates[dates.length - 1]) : ''}`)),
+            h('b', null, amt(x.sum))),
+          h('div', { class: 'faint qwhy' }, x.sug.cat ? (x.sug.sure ? '✓ ' : '? ') : '', x.sug.why),
+          x.sug.create ? h('button', { class: 'btn small', onclick: () => openNewCategory((c) => { if (c) { acceptGroup(x, c.id, remember.checked); S.save(); render(); } }, x.sug.create) }, `+ ליצור "${x.sug.create}" ולסווג`) : null,
+          h('div', { class: 'qrow' }, pick,
+            h('button', { class: 'btn primary', onclick: () => { if (!pick.value) return toast('בחר קטגוריה'); const n = acceptGroup(x, pick.value, remember.checked); S.save(); toast(`סווגו ${n} עסקאות`); render(); } }, 'אישור'),
+            h('button', { class: 'btn', onclick: () => { ui.skip.add(x.norm); render(); } }, 'דלג')),
+          h('div', { class: 'row' },
+            h('label', { class: 'check faint' }, remember, x.p2p ? 'לזכור גם להעברות הבאות (בדרך כלל לא כדאי)' : 'לזכור לבית העסק (ליצור חוק)'),
+            h('button', { class: 'btn small', style: 'margin-inline-start:auto', onclick: () => drill({ q: x.merchant, onlyNone: true }) }, 'פירוט')));
+      })),
+      shown.length > 80 ? h('div', { class: 'faint' }, `מוצגים 80 הראשונים מתוך ${shown.length}`) : null,
+      ui.skip.size ? h('button', { class: 'btn small', onclick: () => { ui.skip.clear(); render(); } }, `הצג שוב ${ui.skip.size} שדילגת עליהם`) : null);
+  }
+
   /* ---------------- view: rules ---------------- */
   function viewRules() {
     ui.rulesTab = ui.rulesTab || 'mine'; ui.rulesQ = ui.rulesQ || '';
@@ -1303,7 +1426,7 @@
     // refresh within the idle window: continue without the password
     if (await S.resume()) {
       let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
-      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules'].includes(v) ? v : 'month');
+      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify'].includes(v) ? v : 'month');
     } else lockScreen();
   })();
 })();
