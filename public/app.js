@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '2.0'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker
+  const VERSION = '2.1'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in)
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false });
   const S = window.KupaStore;
@@ -66,8 +66,10 @@
   }
 
   /* ---------------- data model ---------------- */
-  const P2P = /\bBIT\b|ביט|PAYBOX|פייבוקס|PEPPER\s*PAY|העברה ב/i;
-  const isP2P = (m) => P2P.test(m || '');
+  // person-to-person transfers. Hebrew has no \b in JS regex, so "ביט" must stand alone (not "ביטוח").
+  const P2P = /\bBIT\b|(^|[\s\-"'])ב?ביט($|[\s\-"'])|\bPAYBOX\b|פייבוקס|PEPPER\s*PAY/i;
+  const NOT_P2P = /דמי כרטיס|עמלת|עמלה/; // card fees that merely mention the app
+  const isP2P = (m) => P2P.test(m || '') && !NOT_P2P.test(m || '');
   const normMerchant = (m) => (m || '').toUpperCase().replace(/\d{4,}/g, '').replace(/[*#]/g, ' ').replace(/\s+/g, ' ').trim();
 
   function initialData() {
@@ -127,10 +129,10 @@
   }
 
   function classify(t) {
-    if (isP2P(t.merchant)) return { cat: null, src: null };
     const up = (t.merchant || '').toUpperCase(); const norm = normMerchant(t.merchant);
     const learned = D().rules.find((r) => r.kind === 'exact' && r.text === norm);
     if (learned) return { cat: learned.cat, src: 'rule' };
+    if (isP2P(t.merchant)) return { cat: null, src: null }; // transfers: only rules you created yourself
     for (const r of D().rules) if (r.kind === 'contains' && up.includes(r.text.toUpperCase())) return { cat: r.cat, src: 'rule' };
     if (t.sector && D().sectors[t.sector]) return { cat: D().sectors[t.sector], src: 'sector' };
     return { cat: null, src: null };
@@ -138,7 +140,7 @@
 
   function setCategory(t, cat, learn) {
     t.cat = cat; t.catSrc = 'manual'; t.splits = null;
-    if (!learn || isP2P(t.merchant) || t.source !== 'card') return 0;
+    if (!learn || t.source !== 'card') return 0;
     const norm = normMerchant(t.merchant);
     D().rules = D().rules.filter((r) => !(r.kind === 'exact' && r.text === norm));
     D().rules.unshift({ id: uid(), kind: 'exact', text: norm, cat, auto: false });
@@ -570,7 +572,7 @@
     sheet(t.merchant || 'עסקה', (close) => {
       const p2p = isP2P(t.merchant);
       const catSel = catPicker({ value: t.cat, ariaLabel: 'קטגוריה', extras: [{ value: '', label: '— לסיווג —' }] });
-      const learn = h('input', { type: 'checkbox', checked: !p2p && t.source === 'card' });
+      const learn = h('input', { type: 'checkbox', checked: !p2p && t.source === 'card' }); // off by default for BIT/PAYBOX
       const memo = h('input', { type: 'text', value: t.memo || '', placeholder: 'למשל: מתנה ליום הולדת של…' });
       const excluded = h('input', { type: 'checkbox', checked: !!t.excluded });
       let splits = (t.splits || []).map((sp) => ({ ...sp }));
@@ -611,9 +613,12 @@
           h('div', null, h('span', { class: 'faint' }, 'נספר ב'), h('b', null, mLabel(monthOf(t)))),
           h('div', null, h('span', { class: 'faint' }, 'כרטיס'), h('b', null, cardLabel(t)))),
         h('div', { class: 'faint' }, [t.inst ? `תשלום ${t.inst.n} מתוך ${t.inst.of} (עסקה מלאה ${ils(t.amountOrig)})` : null, (t.notes || '').replace(/תשלום\s*\d+\s*מתוך\s*\d+/g, '').replace(/^[\s·]+|[\s·]+$/g, '')].filter(Boolean).join(' · ')),
-        p2p ? h('div', { class: 'notice info' }, 'העברה בין אנשים — סווג ידנית. כדאי לרשום בהערה על מה היא.') : null,
+        p2p ? h('div', { class: 'notice info' }, 'העברה בין אנשים (BIT / PAYBOX). כדאי לרשום בהערה על מה היא.') : null,
         h('label', { class: 'field' }, h('span', null, 'קטגוריה'), catSel),
-        t.source === 'card' && !p2p ? h('label', { class: 'check faint' }, learn, 'לזכור: כל העסקאות מבית העסק הזה ייכנסו לקטגוריה הזאת') : null,
+        t.source === 'card' ? h('label', { class: 'check faint' }, learn, p2p
+          ? `לזכור: כל העברות "${normMerchant(t.merchant)}" — גם קודמות שלא סווגו ידנית וגם עתידיות — ייכנסו לקטגוריה הזאת`
+          : 'לזכור: כל העסקאות מבית העסק הזה ייכנסו לקטגוריה הזאת') : null,
+        p2p ? h('div', { class: 'faint' }, 'שים לב: בהעברות בין אנשים כל העברה היא בדרך כלל משהו אחר. סמן רק אם ההעברות האלה תמיד לאותה מטרה. אפשר למחוק את החוק בהגדרות ← חוקי סיווג.') : null,
         splitBox,
         h('label', { class: 'field' }, h('span', null, 'הערה'), memo),
         h('label', { class: 'check' }, excluded, 'לא לספור בתקציב (למשל החזר שקיבלתי בנפרד)'),
