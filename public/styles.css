@@ -283,3 +283,14 @@ table.inv td:first-child, table.inv th:first-child { position: sticky; inset-inl
 .sumgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 16px; }
 .sumgrid > div { display: flex; flex-direction: column; gap: 2px; }
 .sellall { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 10px; }
+
+/* investments grid */
+table.igrid td { padding: 3px 3px; }
+table.igrid input, table.igrid select { min-height: 34px; padding: 4px 6px; font-size: 13px; border-radius: 7px; width: 100%; }
+table.igrid input.gnum { width: 86px; direction: ltr; text-align: right; }
+table.igrid input.gsym { width: 76px; direction: ltr; text-align: right; text-transform: uppercase; }
+table.igrid input[type=date] { width: 138px; }
+table.igrid input:disabled { background: var(--surface-2); border-color: transparent; color: var(--ink-3); }
+table.igrid tr.bad td { background: var(--over-soft); }
+.mrow.pst { grid-template-columns: auto auto 1fr auto; cursor: pointer; }
+textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; width: 100%; }

@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.3'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module
+  const VERSION = '3.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -1297,7 +1297,12 @@
     }
     return out;
   }
-  const heldSymbols = () => KupaInvest.compute(IV().txns, {}, IV().settings).positions.map((p) => p.sym);
+  const validInv = (t) => !!t.date && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && (
+    (t.type === 'buy' || t.type === 'sell') ? !!t.sym && t.qty > 0 && t.price > 0 && t.fee >= 0 :
+    t.type === 'div' ? !!t.sym && t.gross > 0 && (t.tax || 0) >= 0 :
+    (t.type === 'dep' || t.type === 'wd') ? t.amount > 0 : false);
+  const invTxns = () => IV().txns.filter(validInv);
+  const heldSymbols = () => KupaInvest.compute(invTxns(), {}, IV().settings).positions.map((p) => p.sym);
 
   let quoteBusy = false, quoteMsg = '';
   const tried = {}; // sym -> last automatic attempt (so a missing key / bad symbol can't cause a fetch loop)
@@ -1326,7 +1331,8 @@
 
   function viewInvest() {
     const iv = IV(); const prices = effPrices();
-    const r = KupaInvest.compute(iv.txns, prices, { sellFee: iv.settings.fee, cgt: iv.settings.cgt });
+    const r = KupaInvest.compute(invTxns(), prices, { sellFee: iv.settings.fee, cgt: iv.settings.cgt });
+    const badRows = iv.txns.length - invTxns().length;
     setTimeout(() => refreshQuotes(false), 0);
     const kpiI = (label, value, sub) => h('div', { class: 'kpi' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'faint' }, sub) : null);
     const priceCell = (p) => {
@@ -1339,7 +1345,9 @@
     return h('main', { class: 'stack' },
       h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'תיק השקעות'),
         h('button', { class: 'btn', disabled: quoteBusy || !T.length, onclick: () => refreshQuotes(true) }, quoteBusy ? 'מרענן…' : 'רענון מחירים'),
-        h('button', { class: 'btn primary', onclick: () => openInvTx(null) }, '+ תנועה')),
+        h('button', { class: 'btn', onclick: () => openInvPaste() }, 'הדבקה מטבלה'),
+        h('button', { class: 'btn primary', onclick: () => addInvRow() }, '+ שורה')),
+      badRows ? h('div', { class: 'notice bad' }, `${badRows} שורות לא שלמות (מסומנות באדום בטבלת התנועות) — לא נכללות בחישוב`) : null,
       quoteMsg ? h('div', { class: 'faint' }, quoteMsg) : null,
       r.missing.length ? h('div', { class: 'notice' }, `אין מחיר ל: ${r.missing.join(', ')} — לחץ על המחיר בטבלה כדי להזין ידנית. השווי לא כולל אותם.`) : null,
       r.warnings.map((w) => h('div', { class: 'notice bad' }, w)),
@@ -1378,17 +1386,7 @@
             h('div', null, h('span', { class: 'faint' }, `מס רווחי הון משוער (${nfu.format(iv.settings.cgt * 100).replace(/\.00$/, '')}% על הרווח נטו אחרי עמלות)`), h('b', null, money(r.estTax))),
             h('div', null, h('span', { class: 'faint' }, 'רווח נטו'), h('b', null, money(r.netIfSold, true)))),
           h('div', { class: 'faint' }, 'הערכה בלבד: המס מחושב על סכום הרווחים פחות ההפסדים בניירות המוחזקים, בלי התאמות אינפלציה/שער ובלי קיזוז מכירות קודמות בשנה.')) : null) : null,
-      h('section', { class: 'card', style: 'padding:6px 12px' },
-        h('div', { class: 'section-title', style: 'padding-top:8px' }, h('h2', null, `תנועות (${iv.txns.length})`)),
-        iv.txns.length ? h('div', { class: 'txlist' }, iv.txns.slice().sort((a, b) => b.date.localeCompare(a.date) || (b.seq || 0) - (a.seq || 0)).map((t) => {
-          const n = KupaInvest.net(t);
-          const what = t.type === 'buy' || t.type === 'sell' ? `${nfu.format(t.qty).replace(/\.00$/, '')} × ${usd(t.price)}` + (t.fee ? ` · עמלה ${usd(t.fee)}` : '')
-            : t.type === 'div' ? `ברוטו ${usd(t.gross)} · מס ${usd(t.tax)}` : '';
-          return h('div', { class: 'tx', role: 'button', tabindex: 0, onclick: () => openInvTx(t) },
-            h('div', { class: 'm' }, h('span', { class: 'pill' + (t.type === 'sell' || t.type === 'wd' ? ' warn' : t.type === 'div' ? ' accent' : '') }, TYPES[t.type]), ' ', t.sym || ''),
-            h('div', { class: 'a' }, money(n, true)),
-            h('div', { class: 'meta' }, h('span', { class: 'num' }, fullDate(t.date)), what ? h('span', null, '· ' + what) : null), h('div'));
-        })) : h('div', { class: 'empty' }, 'אין תנועות')),
+      invGrid(iv),
       h('details', { class: 'card' }, h('summary', null, 'הגדרות התיק ומחירים'),
         h('div', { class: 'stack', style: 'margin-top:10px' },
           h('div', { class: 'fields' },
@@ -1397,6 +1395,121 @@
             h('label', { class: 'field' }, h('span', null, 'מס רווחי הון (%)'),
               h('input', { type: 'number', step: 'any', min: '0', max: '100', inputmode: 'decimal', value: iv.settings.cgt * 100, onchange: (e) => { iv.settings.cgt = Math.max(0, Math.min(100, +e.target.value || 0)) / 100; S.save(); render(); } }))),
           h('div', { class: 'faint' }, 'מחירים: נמשכים בצד השרת (Finnhub) עם מפתח שנשמר כ-secret, במטמון 15 דקות. לשרת נשלחים רק סימולי הניירות — לא כמויות ולא סכומים. בלי מפתח — עובדים עם מחירים ידניים (לחיצה על מחיר בטבלה).'))));
+  }
+
+  /* spreadsheet-style transactions: same columns as the user's sheet; edits save on leaving a cell */
+  const INV_TYPES_HE = { 'הפקדה': 'dep', 'משיכה': 'wd', 'קנייה': 'buy', 'קניה': 'buy', 'מכירה': 'sell', 'דיבידנד': 'div', 'deposit': 'dep', 'withdrawal': 'wd', 'buy': 'buy', 'sell': 'sell', 'dividend': 'div' };
+  const FIELDS = { buy: ['sym', 'qty', 'price', 'fee'], sell: ['sym', 'qty', 'price', 'fee'], div: ['sym', 'gross', 'tax'], dep: ['amount'], wd: ['amount'] };
+  function invGrid(iv) {
+    const rows = iv.txns.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.seq || 0) - (b.seq || 0));
+    const cell = (t, field, attrs) => {
+      const on = (FIELDS[t.type] || []).includes(field) || field === 'date';
+      const v = field === 'amount' ? t.amount : t[field];
+      return h('td', null, h('input', { ...attrs, value: v == null || (typeof v === 'number' && isNaN(v)) ? '' : v, disabled: !on, 'data-k': t.id + ':' + field,
+        onchange: (e) => {
+          let x = e.target.value.trim();
+          if (field === 'sym') x = x.toUpperCase();
+          else if (field !== 'date') x = x === '' ? null : Math.abs(+x.replace(/[,$\s]/g, ''));
+          t[field] = x; S.save(); renderKeepFocus();
+        } }));
+    };
+    const numA = { type: 'text', inputmode: 'decimal', class: 'gnum' };
+    return h('section', { class: 'card', style: 'padding:8px 10px' },
+      h('div', { class: 'section-title' }, h('h2', null, `תנועות (${iv.txns.length})`), h('span', { class: 'faint' }, 'עריכה ישירה בתאים · נשמר ביציאה מתא')),
+      h('div', { class: 'tablewrap' }, h('table', { class: 'grid igrid' },
+        h('thead', null, h('tr', null, ...['תאריך', 'סוג פעולה', 'נייר', 'כמות', 'שער ביצוע', 'עמלה', 'ברוטו', 'מס', 'סכום נטו', ''].map((x) => h('th', null, x)))),
+        h('tbody', null, rows.map((t) => {
+          const ok = validInv(t); const n = ok ? KupaInvest.net(t) : null;
+          return h('tr', { class: ok ? '' : 'bad' },
+            cell(t, 'date', { type: 'date' }),
+            h('td', null, h('select', { 'data-k': t.id + ':type', onchange: (e) => { t.type = e.target.value; if ((t.type === 'buy' || t.type === 'sell') && t.fee == null) t.fee = iv.settings.fee; S.save(); renderKeepFocus(); } },
+              Object.entries(TYPES).map(([k, v]) => h('option', { value: k, selected: t.type === k }, v)))),
+            cell(t, 'sym', { type: 'text', class: 'gsym', autocapitalize: 'characters', placeholder: t.type === 'dep' || t.type === 'wd' ? 'USD' : '' }),
+            cell(t, 'qty', numA), cell(t, 'price', numA), cell(t, 'fee', numA),
+            t.type === 'dep' || t.type === 'wd' ? cell(t, 'amount', numA) : cell(t, 'gross', numA),
+            cell(t, 'tax', numA),
+            h('td', { class: 'n' }, n == null ? h('span', { class: 'loss' }, 'חסר') : money(n, true)),
+            h('td', null, h('button', { class: 'icon-btn', 'aria-label': 'מחיקת שורה', onclick: () => { iv.txns = iv.txns.filter((x) => x !== t); S.save(); render(); } }, icon('trash'))));
+        })))),
+      h('div', { class: 'row', style: 'margin-top:8px' },
+        h('button', { class: 'btn', onclick: () => addInvRow() }, '+ שורה'),
+        h('span', { class: 'faint' }, 'הפקדה/משיכה: הסכום בעמודת "ברוטו". מס: אפשר עם מינוס או בלי.')));
+  }
+  function addInvRow() {
+    const iv = IV(); const lastT = iv.txns.slice().sort((a, b) => (b.seq || 0) - (a.seq || 0))[0];
+    const t = { id: uid(), seq: Date.now(), date: new Date().toISOString().slice(0, 10), type: lastT && lastT.type !== 'dep' ? lastT.type : 'buy', sym: '', qty: null, price: null, fee: iv.settings.fee };
+    iv.txns.push(t); S.save(); render();
+    setTimeout(() => { const el = document.querySelector(`[data-k="${t.id}:sym"]`); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 30);
+  }
+  function renderKeepFocus() { // re-render after a cell change without losing the cell the user tabbed into
+    setTimeout(() => { const a = document.activeElement; const k = a && a.dataset ? a.dataset.k : null; render(); if (k) { const el = document.querySelector(`[data-k="${k}"]`); if (el) el.focus(); } }, 0);
+  }
+
+  /* paste rows copied from a spreadsheet (tab-separated), headers optional:
+     תאריך | סוג פעולה | נייר | כמות | שער ביצוע | עמלה | ברוטו | מס | סכום נטו */
+  function parseInvTable(text) {
+    const lines = text.split(/\r?\n/).map((l) => l.replace(/‏|‎/g, '')).filter((l) => l.trim());
+    if (!lines.length) return [];
+    const split = (l) => (l.includes('\t') ? l.split('\t') : l.split(/\s{2,}|,(?=\S)/)).map((c) => c.trim());
+    let cols = ['date', 'type', 'sym', 'qty', 'price', 'fee', 'gross', 'tax', 'net'];
+    const H = { 'תאריך': 'date', 'סוג פעולה': 'type', 'סוג': 'type', 'נייר': 'sym', 'סימול': 'sym', 'כמות': 'qty', 'שער ביצוע': 'price', 'שער': 'price', 'עמלה': 'fee', 'ברוטו': 'gross', 'מס': 'tax', 'סכום נטו': 'net', 'סכום': 'amount' };
+    let start = 0;
+    const first = split(lines[0]);
+    if (first.some((c) => H[c])) { cols = first.map((c) => H[c] || null); start = 1; }
+    const num = (v) => { if (v == null || v === '') return null; const x = +String(v).replace(/[,$₪\s]/g, ''); return isNaN(x) ? NaN : x; };
+    const toDate = (v) => { v = (v || '').trim(); let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+      m = v.match(/^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$/); if (m) { let y = m[3] ? +m[3] : new Date().getFullYear(); if (y < 100) y += 2000; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; } return null; };
+    const out = [];
+    for (let i = start; i < lines.length; i++) {
+      const c = split(lines[i]); const o = {}; cols.forEach((k, j) => { if (k) o[k] = c[j]; });
+      const type = INV_TYPES_HE[(o.type || '').trim()] || INV_TYPES_HE[(o.type || '').trim().toLowerCase()];
+      const t = { date: toDate(o.date), type };
+      const problems = [];
+      if (!t.date) problems.push('תאריך');
+      if (!type) problems.push('סוג פעולה');
+      if (type === 'buy' || type === 'sell') Object.assign(t, { sym: (o.sym || '').toUpperCase(), qty: Math.abs(num(o.qty)), price: Math.abs(num(o.price)), fee: o.fee === '' || o.fee == null ? IV().settings.fee : Math.abs(num(o.fee)) });
+      else if (type === 'div') Object.assign(t, { sym: (o.sym || '').toUpperCase(), gross: Math.abs(num(o.gross)), tax: Math.abs(num(o.tax) || 0) });
+      else if (type === 'dep' || type === 'wd') t.amount = Math.abs(num(o.gross) ?? num(o.amount) ?? num(o.net) ?? num(o.qty));
+      if (type && !validInv(t)) problems.push('ערכים חסרים');
+      const given = num(o.net); let check = null;
+      if (type && validInv(t) && given != null && !isNaN(given)) { const calc = KupaInvest.net(t); check = Math.abs(calc - given) < 0.01 ? 'ok' : `חישוב ${usd(calc, true)} ≠ בטבלה ${usd(given, true)}`; }
+      const key = (x) => [x.date, x.type, x.sym || '', x.qty || '', x.price || '', x.gross || '', x.amount || ''].join('|');
+      const exists = IV().txns.some((x) => key(x) === key(t));
+      out.push({ t, raw: lines[i], problems, check, exists, on: !problems.length && !exists });
+    }
+    return out;
+  }
+
+  function openInvPaste() {
+    sheet('הדבקה מטבלה', (close) => {
+      const ta = h('textarea', { rows: 8, dir: 'ltr', placeholder: 'העתק שורות מאקסל / Google Sheets והדבק כאן (אפשר כולל שורת הכותרות)', style: 'font-family:ui-monospace,monospace;font-size:12px' });
+      const prev = h('div');
+      let items = [];
+      const draw = () => {
+        items = parseInvTable(ta.value);
+        if (!items.length) { prev.replaceChildren(); return; }
+        const n = items.filter((x) => x.on).length;
+        prev.replaceChildren(h('div', { class: 'stack' },
+          h('div', { class: 'row' }, h('b', null, `${n} שורות ייובאו`), h('span', { class: 'faint' }, `מתוך ${items.length}`),
+            items.some((x) => x.check && x.check !== 'ok') ? h('span', { class: 'pill warn' }, 'יש אי-התאמה בסכום נטו') : items.some((x) => x.check === 'ok') ? h('span', { class: 'pill accent' }, '✓ הסכום נטו תואם בכל השורות') : null),
+          h('div', { class: 'matchlist', style: 'max-height:40vh' }, items.map((x) => h('label', { class: 'mrow pst' + (x.on ? '' : ' off') },
+            h('input', { type: 'checkbox', checked: x.on, disabled: !!x.problems.length, onchange: (e) => { x.on = e.target.checked; } }),
+            h('span', { class: 'num' }, x.t.date ? fullDate(x.t.date) : '?'),
+            h('span', { class: 'mname' }, (TYPES[x.t.type] || '?') + ' ' + (x.t.sym || ''), h('div', { class: 'faint' },
+              x.problems.length ? 'לא תקין: ' + x.problems.join(', ') : x.exists ? 'כבר קיים — ידולג' : x.check && x.check !== 'ok' ? x.check : '')),
+            h('b', { class: 'amt' }, x.problems.length ? '' : usd(KupaInvest.net(x.t), true)))))));
+      };
+      ta.addEventListener('input', draw);
+      return h('div', { class: 'stack' },
+        h('div', { class: 'faint' }, 'עמודות לפי הסדר (או לפי שורת כותרות): תאריך · סוג פעולה · נייר · כמות · שער ביצוע · עמלה · ברוטו · מס · סכום נטו. הפקדה/משיכה — הסכום בברוטו. אם יש עמודת "סכום נטו", כל שורה נבדקת מולה.'),
+        ta, prev,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+          const add = items.filter((x) => x.on && !x.problems.length);
+          if (!add.length) return toast('אין שורות לייבוא');
+          let seq = Date.now(); for (const x of add) IV().txns.push({ id: uid(), seq: seq++, ...x.t });
+          S.save(); close(); toast(`יובאו ${add.length} תנועות`); render(); refreshQuotes(false);
+        } }, 'ייבוא')));
+    });
   }
 
   function openPrice(sym) {
