@@ -18,9 +18,11 @@
    - `SETUP_CODE` — מחרוזת אקראית כלשהי. נדרשת רק ביצירת הכספת, כדי שאף אחד לא "יתפוס" אותה לפניך.
 3. Actions → deploy → Run workflow. הכתובת תהיה `https://kupa.<subdomain>.workers.dev`.
 4. להיכנס, להזין את SETUP_CODE ולבחור סיסמה.
+5. (לא חובה) מחירים חיים לתיק ההשקעות: מפתח חינמי מ-finnhub.io כ-secret בשם `FINNHUB_KEY`. בלי מפתח — מחירים ידניים.
 
 ## פיתוח מקומי
 ```
 npm i && npm run dev        # http://localhost:8787
 npm run test:parsers -- path/to/export.xlsx
+node tests/invest.test.js   # מנוע התיק מול נתוני הבדיקה מהמפרט
 ```

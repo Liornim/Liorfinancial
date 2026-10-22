@@ -162,6 +162,8 @@
       }
     },
 
+    async quotes(syms, force) { return (await api('/api/quote?s=' + encodeURIComponent(syms.join(',')) + (force ? '&force=1' : ''), {}, this.keys.auth)).quotes; },
+
     async versions() { return (await api('/api/versions', {}, this.keys.auth)).versions; },
     async loadVersion(v) { const r = await api('/api/data?v=' + v, {}, this.keys.auth); return decrypt(this.keys.aes, r.blob); },
 

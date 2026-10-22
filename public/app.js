@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.2'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other
+  const VERSION = '3.3'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -35,6 +35,7 @@
   }
   const ICONS = {
     month: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4',
+    trend: 'M3 17l6-6 4 4 8-8M14 7h7v7',
     list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
     upload: 'M12 16V4M7 9l5-5 5 5M4 16v4h16v-4',
     chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
@@ -308,7 +309,7 @@
   }
 
   function shell(content) {
-    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['settings', 'הגדרות', 'gear']];
+    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
     return h('div', null,
       h('div', { class: 'shell' },
         h('header', { class: 'topbar' },
@@ -322,7 +323,7 @@
 
   function render() {
     if (!S.data) return;
-    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify };
+    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest };
     $app.replaceChildren(shell(views[ui.view]()));
   }
 
@@ -1277,6 +1278,191 @@
     });
   }
 
+  /* ---------------- investments (USD broker account, manual transactions) ---------------- */
+  const IV = () => D().invest;
+  const nfu = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usd = (n, sign) => n == null ? '—' : (n < 0 ? '−' : sign && n > 0 ? '+' : '') + '$' + nfu.format(Math.abs(n));
+  const pctf = (x, sign) => x == null ? '—' : (x < 0 ? '−' : sign && x > 0 ? '+' : '') + nfu.format(Math.abs(x * 100)) + '%';
+  const money = (n, sign) => h('span', { class: 'amt' + (sign && n != null ? (n > 0 ? ' gain' : n < 0 ? ' loss' : '') : '') }, usd(n, sign));
+  const pctEl = (x, sign) => h('span', { class: 'amt' + (sign && x != null ? (x > 0 ? ' gain' : x < 0 ? ' loss' : '') : '') }, pctf(x, sign));
+  const TYPES = { buy: 'קנייה', sell: 'מכירה', div: 'דיבידנד', dep: 'הפקדה', wd: 'משיכה' };
+  const QUOTE_TTL = 15 * 60000;
+  const agoText = (at) => { if (!at) return ''; const m = Math.round((Date.now() - at) / 60000); return m < 1 ? 'עכשיו' : m < 60 ? `לפני ${m} ד׳` : m < 1440 ? `לפני ${Math.round(m / 60)} ש׳` : new Date(at).toLocaleDateString('he-IL'); };
+
+  function effPrices() { // manual override wins; otherwise last API price
+    const out = {};
+    for (const [sym, p] of Object.entries(IV().prices)) {
+      if (p.manual && p.manual.price != null) out[sym] = { price: p.manual.price, at: p.manual.at, manual: true };
+      else if (p.price != null) out[sym] = { price: p.price, at: p.at, stale: p.stale || (Date.now() - p.at > 24 * 3600000) };
+    }
+    return out;
+  }
+  const heldSymbols = () => KupaInvest.compute(IV().txns, {}, IV().settings).positions.map((p) => p.sym);
+
+  let quoteBusy = false, quoteMsg = '';
+  const tried = {}; // sym -> last automatic attempt (so a missing key / bad symbol can't cause a fetch loop)
+  async function refreshQuotes(force) {
+    if (quoteBusy) return;
+    const held = heldSymbols();
+    const stale = (s2) => { const p = IV().prices[s2]; return !(p && ((p.manual && p.manual.price != null) || (p.at && Date.now() - p.at < QUOTE_TTL))); };
+    const syms = force ? held : held.filter((s2) => stale(s2) && !(tried[s2] && Date.now() - tried[s2] < QUOTE_TTL));
+    if (!syms.length) return;
+    syms.forEach((s2) => { tried[s2] = Date.now(); });
+    quoteBusy = true; quoteMsg = 'מושך מחירים…'; if (ui.view === 'invest') render();
+    try {
+      const q = await S.quotes(syms, force);
+      let ok = 0; const fail = []; let noKey = false;
+      for (const [sym, r] of Object.entries(q)) {
+        const cur = IV().prices[sym] || {};
+        if (r.error === 'no_key') noKey = true;
+        if (r.price != null) { IV().prices[sym] = { ...cur, price: r.price, at: r.at, stale: !!r.stale }; if (r.stale) fail.push(sym); else ok++; }
+        else fail.push(sym);
+      }
+      quoteMsg = noKey ? 'אין מפתח API בשרת — מחירים ידניים בלבד (לחיצה על מחיר בטבלה)' : fail.length ? `לא עודכנו: ${fail.join(', ')} — מוצג המחיר האחרון` : `עודכנו ${ok} מחירים`;
+      if (ok) S.save();
+    } catch (e) { quoteMsg = 'משיכת מחירים נכשלה — מוצגים המחירים האחרונים'; }
+    quoteBusy = false; if (ui.view === 'invest') render();
+  }
+
+  function viewInvest() {
+    const iv = IV(); const prices = effPrices();
+    const r = KupaInvest.compute(iv.txns, prices, { sellFee: iv.settings.fee, cgt: iv.settings.cgt });
+    setTimeout(() => refreshQuotes(false), 0);
+    const kpiI = (label, value, sub) => h('div', { class: 'kpi' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'faint' }, sub) : null);
+    const priceCell = (p) => {
+      const pr = prices[p.sym];
+      return h('td', { class: 'n drill', role: 'button', tabindex: 0, title: 'עדכון מחיר ידני', onclick: () => openPrice(p.sym) },
+        p.price == null ? h('span', { class: 'loss' }, 'אין מחיר') : money(p.price),
+        pr ? h('div', { class: 'pmeta' + (pr.stale ? ' stale' : '') }, pr.manual ? '✎ ידני · ' + agoText(pr.at) : (pr.stale ? '⚠ ישן · ' : '') + agoText(pr.at)) : null);
+    };
+    const T = r.positions;
+    return h('main', { class: 'stack' },
+      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'תיק השקעות'),
+        h('button', { class: 'btn', disabled: quoteBusy || !T.length, onclick: () => refreshQuotes(true) }, quoteBusy ? 'מרענן…' : 'רענון מחירים'),
+        h('button', { class: 'btn primary', onclick: () => openInvTx(null) }, '+ תנועה')),
+      quoteMsg ? h('div', { class: 'faint' }, quoteMsg) : null,
+      r.missing.length ? h('div', { class: 'notice' }, `אין מחיר ל: ${r.missing.join(', ')} — לחץ על המחיר בטבלה כדי להזין ידנית. השווי לא כולל אותם.`) : null,
+      r.warnings.map((w) => h('div', { class: 'notice bad' }, w)),
+      !iv.txns.length ? h('div', { class: 'card empty' }, 'עוד אין תנועות. התחל ב"+ תנועה" — למשל הפקדה, ואז קניות.') : null,
+      iv.txns.length ? h('div', { class: 'kpis' },
+        kpiI('שווי תיק', money(r.portfolio), 'מזומן + ניירות'),
+        kpiI('יתרה דולרית', money(r.cash)),
+        kpiI('שווי ניירות', money(r.value)),
+        kpiI('רווח מול הפקדות', money(r.vsDeposits, true), [pctf(r.vsDepositsPct, true), ' · הפקדות נטו ', usd(r.netDeposits)])) : null,
+      T.length ? h('section', { class: 'card', style: 'padding:8px 10px' },
+        h('div', { class: 'section-title' }, h('h2', null, 'פוזיציות'), h('span', { class: 'faint' }, 'לחיצה על מחיר — עדכון ידני')),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'grid inv' },
+          h('thead', null, h('tr', null, ...['נייר', 'כמות', 'עלות כולל עמלות', 'עלות ממוצעת', 'שער נוכחי', 'שווי', 'רווח מחיר', '%', 'דיבידנד נטו', '%', 'רווח כולל', '%', 'משקל', 'BREAKEVEN'].map((x, i) => h('th', { class: i ? 'n' : '' }, x)))),
+          h('tbody', null,
+            T.map((p) => h('tr', null,
+              h('td', null, h('b', null, p.sym)), h('td', { class: 'n' }, nfu.format(p.qty).replace(/\.00$/, '')), h('td', { class: 'n' }, money(p.cost)), h('td', { class: 'n' }, money(p.avg)),
+              priceCell(p), h('td', { class: 'n' }, money(p.value)),
+              h('td', { class: 'n' }, money(p.priceGain, true)), h('td', { class: 'n' }, pctEl(p.priceGainPct, true)),
+              h('td', { class: 'n' }, money(p.div)), h('td', { class: 'n' }, pctEl(p.divPct)),
+              h('td', { class: 'n' }, h('b', null, money(p.total, true))), h('td', { class: 'n' }, pctEl(p.totalPct, true)),
+              h('td', { class: 'n' }, pctf(p.weight)), h('td', { class: 'n' }, money(p.breakeven)))),
+            h('tr', { class: 'total' }, h('td', null, 'סה"כ'), h('td'), h('td', { class: 'n' }, money(r.cost)), h('td'), h('td'), h('td', { class: 'n' }, money(r.value)),
+              h('td', { class: 'n' }, money(r.priceGain, true)), h('td', { class: 'n' }, pctEl(r.priceGainPct, true)),
+              h('td', { class: 'n' }, money(r.divHeld)), h('td', { class: 'n' }, pctEl(r.divPct)),
+              h('td', { class: 'n' }, money(r.total, true)), h('td', { class: 'n' }, pctEl(r.totalPct, true)), h('td', { class: 'n' }, r.value ? '100%' : ''), h('td')))))) : null,
+      iv.txns.length ? h('section', { class: 'card stack' },
+        h('h2', null, 'סיכום חשבון'),
+        h('div', { class: 'sumgrid' },
+          ...[['סך הפקדות נטו', money(r.netDeposits)], ['רווח כולל מול הפקדות', [money(r.vsDeposits, true), ' (', pctEl(r.vsDepositsPct, true), ')']],
+            ['סך עמלות ששולמו', money(r.fees)], ['מס שנוכה מדיבידנדים', money(r.divTax)], ['דיבידנד נטו (כולל ניירות שנמכרו)', money(r.divNet)],
+            r.realized ? ['רווח ממומש ממכירות', money(r.realized, true)] : null].filter(Boolean).map(([k, v]) => h('div', null, h('span', { class: 'faint' }, k), h('b', null, v)))),
+        T.length ? h('div', { class: 'sellall' },
+          h('h3', null, 'אם מוכרים הכל עכשיו'),
+          h('div', { class: 'sumgrid' },
+            h('div', null, h('span', { class: 'faint' }, `עמלות מכירה (${T.length} × ${usd(+iv.settings.fee)})`), h('b', null, money(r.sellFees))),
+            h('div', null, h('span', { class: 'faint' }, `מס רווחי הון משוער (${nfu.format(iv.settings.cgt * 100).replace(/\.00$/, '')}% על הרווח נטו אחרי עמלות)`), h('b', null, money(r.estTax))),
+            h('div', null, h('span', { class: 'faint' }, 'רווח נטו'), h('b', null, money(r.netIfSold, true)))),
+          h('div', { class: 'faint' }, 'הערכה בלבד: המס מחושב על סכום הרווחים פחות ההפסדים בניירות המוחזקים, בלי התאמות אינפלציה/שער ובלי קיזוז מכירות קודמות בשנה.')) : null) : null,
+      h('section', { class: 'card', style: 'padding:6px 12px' },
+        h('div', { class: 'section-title', style: 'padding-top:8px' }, h('h2', null, `תנועות (${iv.txns.length})`)),
+        iv.txns.length ? h('div', { class: 'txlist' }, iv.txns.slice().sort((a, b) => b.date.localeCompare(a.date) || (b.seq || 0) - (a.seq || 0)).map((t) => {
+          const n = KupaInvest.net(t);
+          const what = t.type === 'buy' || t.type === 'sell' ? `${nfu.format(t.qty).replace(/\.00$/, '')} × ${usd(t.price)}` + (t.fee ? ` · עמלה ${usd(t.fee)}` : '')
+            : t.type === 'div' ? `ברוטו ${usd(t.gross)} · מס ${usd(t.tax)}` : '';
+          return h('div', { class: 'tx', role: 'button', tabindex: 0, onclick: () => openInvTx(t) },
+            h('div', { class: 'm' }, h('span', { class: 'pill' + (t.type === 'sell' || t.type === 'wd' ? ' warn' : t.type === 'div' ? ' accent' : '') }, TYPES[t.type]), ' ', t.sym || ''),
+            h('div', { class: 'a' }, money(n, true)),
+            h('div', { class: 'meta' }, h('span', { class: 'num' }, fullDate(t.date)), what ? h('span', null, '· ' + what) : null), h('div'));
+        })) : h('div', { class: 'empty' }, 'אין תנועות')),
+      h('details', { class: 'card' }, h('summary', null, 'הגדרות התיק ומחירים'),
+        h('div', { class: 'stack', style: 'margin-top:10px' },
+          h('div', { class: 'fields' },
+            h('label', { class: 'field' }, h('span', null, 'עמלה לעסקה ($) — ברירת מחדל בטופס וגם עמלת מכירה משוערת'),
+              h('input', { type: 'number', step: 'any', min: '0', inputmode: 'decimal', value: iv.settings.fee, onchange: (e) => { iv.settings.fee = Math.max(0, +e.target.value || 0); S.save(); render(); } })),
+            h('label', { class: 'field' }, h('span', null, 'מס רווחי הון (%)'),
+              h('input', { type: 'number', step: 'any', min: '0', max: '100', inputmode: 'decimal', value: iv.settings.cgt * 100, onchange: (e) => { iv.settings.cgt = Math.max(0, Math.min(100, +e.target.value || 0)) / 100; S.save(); render(); } }))),
+          h('div', { class: 'faint' }, 'מחירים: נמשכים בצד השרת (Finnhub) עם מפתח שנשמר כ-secret, במטמון 15 דקות. לשרת נשלחים רק סימולי הניירות — לא כמויות ולא סכומים. בלי מפתח — עובדים עם מחירים ידניים (לחיצה על מחיר בטבלה).'))));
+  }
+
+  function openPrice(sym) {
+    const p = IV().prices[sym] || {};
+    sheet('מחיר ' + sym, (close) => {
+      const inp = h('input', { type: 'number', step: 'any', min: '0', inputmode: 'decimal', value: p.manual ? p.manual.price : '', placeholder: p.price != null ? String(p.price) : '' });
+      return h('div', { class: 'stack' },
+        h('div', null, 'מחיר אחרון מה-API: ', p.price != null ? h('b', null, usd(p.price)) : h('span', { class: 'faint' }, 'אין'), p.at ? h('span', { class: 'faint' }, ' · ' + agoText(p.at) + (p.stale ? ' (ישן)' : '')) : null),
+        h('label', { class: 'field' }, h('span', null, 'מחיר ידני ($) — דורס את ה-API עד שתנקה'), inp),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn primary', onclick: () => { const v = +inp.value; if (!(v > 0)) return toast('מחיר לא תקין'); IV().prices[sym] = { ...p, manual: { price: v, at: Date.now() } }; S.save(); close(); render(); } }, 'שמירה'),
+          p.manual ? h('button', { class: 'btn', onclick: () => { const q = { ...p }; delete q.manual; IV().prices[sym] = q; S.save(); close(); render(); refreshQuotes(true); } }, 'ניקוי — חזרה למחיר API') : null));
+    });
+  }
+
+  function openInvTx(existing) {
+    const iv = IV();
+    const t0 = existing || { type: 'buy', date: new Date().toISOString().slice(0, 10), fee: iv.settings.fee };
+    sheet(existing ? 'עריכת תנועה' : 'תנועה חדשה', (close) => {
+      let type = t0.type;
+      const known = [...new Set(iv.txns.filter((t) => t.sym).map((t) => t.sym))].sort();
+      const date = h('input', { type: 'date', value: t0.date });
+      const sym = h('input', { type: 'text', value: t0.sym || '', placeholder: 'VOO', autocapitalize: 'characters', autocomplete: 'off', list: 'kupa-syms', style: 'direction:ltr;text-align:right' });
+      const dl = h('datalist', { id: 'kupa-syms' }, known.map((s2) => h('option', { value: s2 })));
+      const num = (v, ph) => h('input', { type: 'number', step: 'any', min: '0', inputmode: 'decimal', value: v == null ? '' : v, placeholder: ph || '' });
+      const qty = num(t0.qty), price = num(t0.price), fee = num(t0.fee != null ? t0.fee : iv.settings.fee), gross = num(t0.gross), tax = num(t0.tax), amount = num(t0.amount);
+      const preview = h('div', { class: 'notice info' });
+      const box = h('div', { class: 'stack' });
+      const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג' });
+      const f = (label, el) => h('label', { class: 'field' }, h('span', null, label), el);
+      const draft = () => {
+        const d = { type, date: date.value };
+        if (type === 'buy' || type === 'sell') Object.assign(d, { sym: sym.value.trim().toUpperCase(), qty: +qty.value, price: +price.value, fee: +fee.value || 0 });
+        else if (type === 'div') Object.assign(d, { sym: sym.value.trim().toUpperCase(), gross: +gross.value, tax: +tax.value || 0 });
+        else Object.assign(d, { amount: +amount.value });
+        return d;
+      };
+      const upd = () => { const d = draft(); const n = KupaInvest.net(d); preview.replaceChildren('סכום נטו למזומן: ', money(isFinite(n) ? n : 0, true)); };
+      const draw = () => {
+        seg.replaceChildren(...Object.entries(TYPES).map(([k, v]) => h('button', { type: 'button', 'aria-pressed': type === k ? 'true' : 'false', onclick: () => { type = k; draw(); } }, v)));
+        box.replaceChildren(
+          type !== 'dep' && type !== 'wd' ? f('נייר (סימול)', sym) : null,
+          type === 'buy' || type === 'sell' ? h('div', { class: 'fields' }, f('כמות', qty), f('שער ביצוע ($)', price), f('עמלה ($)', fee)) : null,
+          type === 'div' ? h('div', { class: 'fields' }, f('ברוטו ($)', gross), f('מס שנוכה ($)', tax)) : null,
+          type === 'dep' || type === 'wd' ? f('סכום ($)', amount) : null);
+        upd();
+      };
+      [date, sym, qty, price, fee, gross, tax, amount].forEach((el) => el.addEventListener('input', upd));
+      draw();
+      const save = () => {
+        const d = draft();
+        if (!d.date) return toast('צריך תאריך');
+        if ((type === 'buy' || type === 'sell' || type === 'div') && !/^[A-Z0-9.\-]{1,12}$/.test(d.sym)) return toast('סימול לא תקין');
+        if ((type === 'buy' || type === 'sell') && !(d.qty > 0 && d.price > 0)) return toast('צריך כמות ושער');
+        if (type === 'div' && !(d.gross > 0)) return toast('צריך סכום ברוטו');
+        if ((type === 'dep' || type === 'wd') && !(d.amount > 0)) return toast('צריך סכום');
+        if (existing) { for (const k of ['sym', 'qty', 'price', 'fee', 'gross', 'tax', 'amount']) delete existing[k]; Object.assign(existing, d); }
+        else iv.txns.push({ id: uid(), seq: Date.now(), ...d });
+        S.save(); close(); render(); refreshQuotes(false);
+      };
+      return h('div', { class: 'stack' }, seg, f('תאריך', date), box, dl, preview,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'שמירה'), h('div', { class: 'grow' }),
+          existing ? h('button', { class: 'btn danger', onclick: () => { iv.txns = iv.txns.filter((x) => x !== existing); S.save(); close(); render(); } }, 'מחיקה') : null));
+    });
+  }
+
   /* ---------------- view: settings ---------------- */
   function viewSettings() {
     const m = ui.month;
@@ -1475,6 +1661,8 @@
     if (!d.settings.lockV) { d.settings.autoLockMin = 3; d.settings.lockV = 2; S.save(); } // one-time: new default 3 min
     (d.rules || []).forEach((r) => { if (r.min === undefined) r.min = ''; if (r.max === undefined) r.max = ''; });
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
+    d.invest = d.invest || { txns: [], prices: {}, settings: { fee: 8, cgt: 0.25 } };
+    d.invest.prices = d.invest.prices || {}; d.invest.settings = Object.assign({ fee: 8, cgt: 0.25 }, d.invest.settings || {});
     if (!d.settings.mig25) { // built-in 'טרמינל' caught 'היינמן טרמינל' (airport) as clothing
       const bad = (d.rules || []).filter((r) => r.auto && r.text === 'טרמינל');
       if (bad.length) {
@@ -1500,7 +1688,7 @@
     // refresh within the idle window: continue without the password
     if (await S.resume()) {
       let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
-      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify'].includes(v) ? v : 'month');
+      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest'].includes(v) ? v : 'month');
     } else lockScreen();
   })();
 })();

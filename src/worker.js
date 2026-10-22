@@ -8,6 +8,7 @@ const MAX_BLOB = 20 * 1024 * 1024;
 const FAIL_WINDOW_MS = 60 * 60 * 1000;
 const FAIL_PER_IP = 10;
 const FAIL_GLOBAL = 50;
+const QUOTE_TTL_MS = 15 * 60 * 1000;
 
 const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -59,6 +60,7 @@ export class Vault extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS chunks (ver INTEGER, idx INTEGER, data BLOB, PRIMARY KEY (ver, idx))`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS versions (ver INTEGER PRIMARY KEY, at INTEGER, size INTEGER)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS fails (ip TEXT, at INTEGER)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS quotes (sym TEXT PRIMARY KEY, price REAL, at INTEGER, src TEXT)`);
   }
   getMeta(k) { const r = this.sql.exec('SELECT v FROM meta WHERE k=?', k).toArray(); return r.length ? r[0].v : null; }
   setMeta(k, v) { this.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)', k, v); }
@@ -143,6 +145,29 @@ export class Vault extends DurableObject {
         const body = await request.json();
         if (Number(body.baseVersion) !== this.currentVersion()) return json({ error: 'conflict', version: this.currentVersion() }, 409);
         return json({ version: this.writeBlob(body.blob) });
+      }
+      if (path === '/api/quote' && method === 'GET') {
+        // prices for the investments page. Only ticker symbols reach the server (never quantities or amounts).
+        const syms = [...new Set((url.searchParams.get('s') || '').toUpperCase().split(',').map((x) => x.trim()).filter((x) => /^[A-Z0-9.\-]{1,12}$/.test(x)))].slice(0, 40);
+        const force = url.searchParams.get('force') === '1';
+        const out = {};
+        for (const sym of syms) {
+          const row = this.sql.exec('SELECT price, at, src FROM quotes WHERE sym=?', sym).toArray()[0];
+          if (row && !force && Date.now() - row.at < QUOTE_TTL_MS) { out[sym] = { price: row.price, at: row.at, src: row.src, cached: true }; continue; }
+          if (!this.env.FINNHUB_KEY) { out[sym] = row ? { price: row.price, at: row.at, src: row.src, stale: true, error: 'no_key' } : { error: 'no_key' }; continue; }
+          try {
+            const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${this.env.FINNHUB_KEY}`, { cf: { cacheTtl: 0 } });
+            if (!r.ok) throw new Error('http_' + r.status);
+            const j = await r.json();
+            if (!(j && j.c > 0)) throw new Error('no_price');
+            const at = j.t ? j.t * 1000 : Date.now();
+            this.sql.exec('INSERT OR REPLACE INTO quotes (sym, price, at, src) VALUES (?, ?, ?, ?)', sym, j.c, Date.now(), 'finnhub');
+            out[sym] = { price: j.c, at: Date.now(), quoteTime: at, src: 'finnhub' };
+          } catch (e) {
+            out[sym] = row ? { price: row.price, at: row.at, src: row.src, stale: true, error: String(e.message || e) } : { error: String(e.message || e) };
+          }
+        }
+        return json({ quotes: out, ttlMin: QUOTE_TTL_MS / 60000 });
       }
       if (path === '/api/versions' && method === 'GET') {
         return json({ versions: this.sql.exec('SELECT ver, at, size FROM versions ORDER BY ver DESC').toArray() });

@@ -273,3 +273,13 @@ a.btn { text-decoration: none; color: var(--ink); display: inline-flex; align-it
 .mrow.imp { grid-template-columns: auto 1fr minmax(120px, 42%) auto; cursor: default; }
 .imppick .picker { min-height: 34px; padding: 4px 8px; font-size: 13px; }
 @media (max-width: 520px) { .mrow.imp { grid-template-columns: auto 1fr auto; } .mrow.imp .imppick { grid-column: 2 / 4; } }
+
+/* investments */
+.gain { color: var(--ok); } .loss { color: var(--over); }
+table.inv th, table.inv td { padding: 6px 7px; font-size: 13px; }
+table.inv td:first-child, table.inv th:first-child { position: sticky; inset-inline-start: 0; background: var(--surface); z-index: 1; }
+.pmeta { font-size: 11px; color: var(--ink-3); }
+.pmeta.stale { color: var(--warn); }
+.sumgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 16px; }
+.sumgrid > div { display: flex; flex-direction: column; gap: 2px; }
+.sellall { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 10px; }
