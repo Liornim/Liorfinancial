@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.4'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table
+  const VERSION = '3.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -1345,7 +1345,7 @@
     return h('main', { class: 'stack' },
       h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'תיק השקעות'),
         h('button', { class: 'btn', disabled: quoteBusy || !T.length, onclick: () => refreshQuotes(true) }, quoteBusy ? 'מרענן…' : 'רענון מחירים'),
-        h('button', { class: 'btn', onclick: () => openInvPaste() }, 'הדבקה מטבלה'),
+        h('button', { class: 'btn', onclick: () => openInvPaste() }, 'ייבוא קובץ / הדבקה'),
         h('button', { class: 'btn primary', onclick: () => addInvRow() }, '+ שורה')),
       badRows ? h('div', { class: 'notice bad' }, `${badRows} שורות לא שלמות (מסומנות באדום בטבלת התנועות) — לא נכללות בחישוב`) : null,
       quoteMsg ? h('div', { class: 'faint' }, quoteMsg) : null,
@@ -1457,7 +1457,7 @@
     const first = split(lines[0]);
     if (first.some((c) => H[c])) { cols = first.map((c) => H[c] || null); start = 1; }
     const num = (v) => { if (v == null || v === '') return null; const x = +String(v).replace(/[,$₪\s]/g, ''); return isNaN(x) ? NaN : x; };
-    const toDate = (v) => { v = (v || '').trim(); let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    const toDate = (v) => { v = (v || '').trim(); if (/^\d{5}(\.\d+)?$/.test(v)) return P.toISODate(+v); let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
       m = v.match(/^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$/); if (m) { let y = m[3] ? +m[3] : new Date().getFullYear(); if (y < 100) y += 2000; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; } return null; };
     const out = [];
     for (let i = start; i < lines.length; i++) {
@@ -1481,7 +1481,7 @@
   }
 
   function openInvPaste() {
-    sheet('הדבקה מטבלה', (close) => {
+    sheet('ייבוא תנועות — קובץ או הדבקה', (close) => {
       const ta = h('textarea', { rows: 8, dir: 'ltr', placeholder: 'העתק שורות מאקסל / Google Sheets והדבק כאן (אפשר כולל שורת הכותרות)', style: 'font-family:ui-monospace,monospace;font-size:12px' });
       const prev = h('div');
       let items = [];
@@ -1500,7 +1500,27 @@
             h('b', { class: 'amt' }, x.problems.length ? '' : usd(KupaInvest.net(x.t), true)))))));
       };
       ta.addEventListener('input', draw);
+      const fileIn = h('input', { type: 'file', accept: '.xlsx,.xls,.csv,.tsv,.txt', class: 'hidden', onchange: async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try {
+          let text;
+          if (/\.(csv|tsv|txt)$/i.test(f.name)) text = await f.text();
+          else {
+            const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: false });
+            // first sheet that looks like the transactions table (has a header with תאריך), else the first sheet
+            const sheets = wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }));
+            const rows = sheets.find((r) => r.some((row) => row.some((c) => String(c).trim() === 'תאריך'))) || sheets[0] || [];
+            const hi = rows.findIndex((row) => row.some((c) => String(c).trim() === 'תאריך'));
+            text = rows.slice(Math.max(0, hi)).filter((row) => row.some((c) => String(c).trim() !== '')).map((row) => row.map((c) => String(c)).join('\t')).join('\n');
+          }
+          ta.value = text; draw(); fname.textContent = f.name;
+        } catch (x) { toast('לא הצלחתי לקרוא את הקובץ'); }
+        e.target.value = '';
+      } });
+      const fname = h('span', { class: 'faint' });
       return h('div', { class: 'stack' },
+        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => fileIn.click() }, 'בחירת קובץ (Excel / CSV)'), fname, fileIn),
+        h('div', { class: 'faint' }, 'או להעתיק שורות מגיליון ולהדביק:'),
         h('div', { class: 'faint' }, 'עמודות לפי הסדר (או לפי שורת כותרות): תאריך · סוג פעולה · נייר · כמות · שער ביצוע · עמלה · ברוטו · מס · סכום נטו. הפקדה/משיכה — הסכום בברוטו. אם יש עמודת "סכום נטו", כל שורה נבדקת מולה.'),
         ta, prev,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
