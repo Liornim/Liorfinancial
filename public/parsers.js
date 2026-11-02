@@ -39,13 +39,16 @@
 
   /* ---------- Isracard / Amex (same portal export) ---------- */
   function isIsracard(rows) {
-    return rows.some((r) => r && clean(r[0]) === 'תאריך רכישה' && r.some((c) => clean(c).startsWith("מס' שובר")));
+    // portal export: a "NAME - 1234" card row with a ₪ total, and a purchase-date table (billed has "מס' שובר"; not-yet-recorded has 4 columns)
+    const hasHeader = rows.some((r) => r && clean(r[0]) === 'תאריך רכישה' && clean(r[1]) === 'שם בית עסק' && !r.some((c) => clean(c) === 'מספר שובר'));
+    const hasCard = rows.some((r) => r && /-\s*\d{4}$/.test(clean(r[0])) && r.slice(1).some((c) => /₪/.test(clean(c))));
+    return hasHeader && (hasCard || rows.some((r) => r && r.some((c) => clean(c).startsWith("מס' שובר"))));
   }
 
   function parseIsracard(rows) {
     const out = { issuer: 'isracard', statements: [], txns: [], warnings: [] };
     let monthYear = null; // from "נובמבר 2026"
-    let st = null; let cols = null; let inTable = false;
+    let st = null; let cols = null; let inTable = false; let section = 'billed';
 
     const finishStatement = () => { if (st) out.statements.push(st); st = null; inTable = false; };
 
@@ -60,7 +63,7 @@
       // card header: "AMEX FLYCARD PREMIUM - 6013" ... "₪ 37,442.89"
       const cardM = a.match(/^(.*?)\s*-\s*(\d{4})$/);
       if (cardM && r.slice(1).some((c) => /₪/.test(clean(c)))) {
-        finishStatement();
+        finishStatement(); section = 'billed';
         const totalCell = r.slice(1).map(clean).find((c) => /₪/.test(c));
         st = { card: cardM[2], cardName: cardM[1] || 'כרטיס', headerTotal: num(totalCell), billingDate: null, rowsTotal: 0, count: 0, statedTotal: null };
         continue;
@@ -75,6 +78,8 @@
           }
         }
       }
+      const secCell = r.map(clean).find((c) => /^עסקאות (שטרם נקלטו|בחיוב עתידי|למועד חיוב)/.test(c));
+      if (secCell && a !== 'תאריך רכישה' && !inTable) { section = /^עסקאות למועד חיוב/.test(secCell) ? 'billed' : 'pending'; continue; }
       if (a === 'תאריך רכישה') {
         if (!st) { st = { card: '????', cardName: 'כרטיס', headerTotal: null, billingDate: null, rowsTotal: 0, count: 0, statedTotal: null }; out.warnings.push('לא זוהה מספר כרטיס בקובץ'); }
         cols = {};
@@ -84,9 +89,19 @@
       }
       if (inTable) {
         const b = clean(r[1]);
-        if (/^סה"כ/.test(b)) { st.statedTotal = num(r[cols['סכום חיוב']]); inTable = false; continue; }
+        if (/^סה"כ/.test(b) || /^סה"כ/.test(a)) {
+          if (section === 'pending') st.pendingStated = num(r[cols['סכום עסקה']]); else st.statedTotal = num(r[cols['סכום חיוב']]);
+          inTable = false; continue;
+        }
         const date = toISODate(r[cols['תאריך רכישה']]);
         if (!date) { if (!r.some((c) => clean(c))) inTable = false; continue; }
+        if (section === 'pending' || cols['סכום חיוב'] == null) { // not yet recorded: no voucher, no charged amount
+          const cur = curCode(r[cols['מטבע עסקה']]); const orig = num(r[cols['סכום עסקה']]);
+          const t = { issuer: 'isracard', card: st.card, date, merchant: b, amountOrig: orig, currency: cur, amount: cur === 'ILS' ? orig : null, chargeCurrency: 'ILS',
+            voucher: '', notes: 'עסקה שטרם נקלטה', sector: '', inst: null, pending: true, billingDate: null, billingEst: true, abroad: cur !== 'ILS', standing: false };
+          st.pendingSum = (st.pendingSum || 0) + (orig || 0); st.pendingCount = (st.pendingCount || 0) + 1;
+          t._st = st; out.txns.push(t); continue;
+        }
         const chargeCur = curCode(r[cols['מטבע חיוב']]);
         const detail = clean(r[cols['פירוט נוסף']]);
         const t = {
@@ -108,7 +123,14 @@
     for (const t of out.txns) { t.billingDate = t._st.billingDate; delete t._st; }
     for (const s of out.statements) s.rowsTotal = Math.round(s.rowsTotal * 100) / 100;
     // keys: voucher is unique per transaction; installments repeat it, so add n
-    for (const t of out.txns) t.key = ['isr', t.card, t.voucher || (t.date + '|' + t.merchant + '|' + t.amountOrig), t.inst ? t.inst.n : 0].join('|');
+    const seen = {};
+    for (const t of out.txns) {
+      if (t.pending) { const base = ['isr', t.card, 'P', t.date, t.merchant, t.amountOrig].join('|'); seen[base] = (seen[base] || 0) + 1; t.key = base + '|' + seen[base]; }
+      else t.key = ['isr', t.card, t.voucher || (t.date + '|' + t.merchant + '|' + t.amountOrig), t.inst ? t.inst.n : 0].join('|');
+    }
+    const pend = out.txns.filter((t) => t.pending).length;
+    if (pend) out.warnings.push(`${pend} עסקאות שטרם נקלטו — ייובאו כזמניות ויתעדכנו כשיגיע החיוב הסופי`);
+    if (out.txns.some((t) => t.pending && t.amount == null)) out.warnings.push('עסקת מט"ח שטרם נקלטה — הסכום בש"ח עוד לא ידוע ולא ייספר עד שתתעדכן');
     return out;
   }
 
@@ -323,8 +345,8 @@
   }
 
   function parseRows(rows) {
-    if (isIsracard(rows)) return parseIsracard(rows);
     if (isIsracardExport(rows)) return parseIsracardExport(rows);
+    if (isIsracard(rows)) return parseIsracard(rows);
     if (isCalTxList(rows)) return parseCalTxList(rows);
     if (isCal(rows)) return parseCal(rows);
     return null;
@@ -332,11 +354,13 @@
 
   /* checksum: sum of parsed charges must equal the total the issuer printed */
   function verify(res) {
-    return res.statements.map((s) => {
+    const pend = res.statements.filter((s) => s.pendingCount).map((s) => ({ card: s.card, label: `שטרם נקלטו · ${s.card}`, expected: s.pendingStated,
+      got: Math.round(s.pendingSum * 100) / 100, ok: s.pendingStated == null ? null : Math.abs(s.pendingStated - s.pendingSum) < 0.05, count: s.pendingCount, billingDate: s.billingDate }));
+    return res.statements.filter((s) => s.count || !s.pendingCount).map((s) => {
       const expected = s.statedTotal != null ? s.statedTotal : s.headerTotal;
       const ok = expected == null ? null : Math.abs(expected - s.rowsTotal) < 0.05;
       return { card: s.card, label: s.label, expected, got: s.rowsTotal, ok, count: s.count, billingDate: s.billingDate };
-    });
+    }).concat(pend);
   }
 
   const api = { parseRows, verify, toISODate, parseInstallment, clean };

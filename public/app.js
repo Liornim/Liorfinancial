@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.5'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv
+  const VERSION = '3.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -248,6 +248,15 @@
     for (const t of parsed.txns) {
       const ex = byKey.get(t.key);
       if (ex) { if (ex.pending && !t.pending) plan.update.push([ex, t]); else plan.dup.push(t); continue; }
+      // Isracard: a 'not yet recorded' transaction has no voucher; when the billed version arrives, match it by card+date+amount+first word
+      if (fmt(t.key) === 'isr') {
+        const w = (m) => normMerchant(m || '').split(' ')[0];
+        const same = (x) => fmt(x.key) === 'isr' && x.card === t.card && x.date === t.date && Math.abs((x.amountOrig || 0) - (t.amountOrig || 0)) < 0.01 && w(x.merchant) === w(t.merchant);
+        if (!t.pending) {
+          const pend = D().txns.find((x) => x.pending && same(x) && !plan.update.some(([e]) => e === x));
+          if (pend) { plan.update.push([pend, t]); continue; }
+        } else if (D().txns.some((x) => !x.pending && same(x))) { plan.dup.push(t); continue; } // old 'not yet recorded' file re-imported after the final one
+      }
       const cands = pool[sec(t)];
       const i = cands ? cands.findIndex((f) => f !== fmt(t.key) && f !== 'cal' && fmt(t.key) !== 'cal') : -1;
       if (i >= 0) { cands.splice(i, 1); plan.dup.push(t); plan.crossDup++; continue; }
@@ -270,7 +279,7 @@
       D().txns.push({ ...t, id: uid(), source: 'card', dir: 'out', cat, catSrc: src, ruleId, splits: null, memo: '', importId: imp.id, excluded: false });
     }
     for (const [ex, t] of plan.update) {
-      Object.assign(ex, { amount: t.amount, amountOrig: t.amountOrig, currency: t.currency === '?' ? ex.currency : t.currency, billingDate: t.billingDate, billingEst: false, pending: false, notes: t.notes, inst: t.inst || ex.inst });
+      Object.assign(ex, { key: t.key, voucher: t.voucher || ex.voucher, merchant: t.merchant || ex.merchant, amount: t.amount, amountOrig: t.amountOrig, currency: t.currency === '?' ? ex.currency : t.currency, billingDate: t.billingDate, billingEst: false, pending: false, notes: t.notes, inst: t.inst || ex.inst });
     }
     D().imports.unshift(imp);
     S.save();
