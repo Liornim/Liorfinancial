@@ -1,9 +1,9 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.6'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions
+  const VERSION = '3.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups
   const VERSION_DATE = '12.10.26';
-  const EMPTY_F = () => ({ q: '', cat: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
+  const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
   const P = window.KupaParsers;
   const $app = document.getElementById('app');
@@ -41,7 +41,21 @@
     chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z',
     plus: 'M12 5v14M5 12h14', prev: 'M9 6l6 6-6 6', next: 'M15 6l-6 6 6 6', x: 'M6 6l12 12M18 6L6 18',
-    lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3', trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+    lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3',
+    g_travel: 'M12 4a9 8 0 0 1 9 8H3a9 8 0 0 1 9-8zM12 12v7a2 2 0 0 0 4 0M12 4v-1',
+    g_bag: 'M5 8h14l-1 12H6zM9 8V7a3 3 0 0 1 6 0v1',
+    g_coins: 'M5 7c0-1.4 3.1-2.5 7-2.5s7 1.1 7 2.5-3.1 2.5-7 2.5S5 8.4 5 7zM5 7v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V7M5 12v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5',
+    g_doc: 'M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5',
+    g_family: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20a6 6 0 0 1 12 0M16 5.2a3 3 0 0 1 0 5.6M18 14.5a5.5 5.5 0 0 1 3 5.5',
+    g_home: 'M3 11l9-7 9 7M5 9.5V20h14V9.5M10 20v-5h4v5',
+    g_food: 'M4 11a8 6 0 0 1 16 0zM4 14.5h16M5 17.5h14a1.2 1.2 0 0 1 0 2.5H5a1.2 1.2 0 0 1 0-2.5z',
+    g_car: 'M4 16v-4l2.2-5h11.6l2.2 5v4zM3 16h18M7 16v2.5M17 16v2.5M7.5 12.5h.01M16.5 12.5h.01',
+    g_health: 'M12 20s-7-4.4-8.6-9C2.3 7.6 5 4.8 8 5.6c1.9.5 4 3 4 3s2.1-2.5 4-3c3-.8 5.7 2 4.6 5.4C19 15.6 12 20 12 20z',
+    g_fun: 'M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4zM15 7v10',
+    g_work: 'M3 8h18v11H3zM9 8V5h6v3M3 13h18',
+    g_tag: 'M3 12V4h8l10 10-8 8zM7.5 7.5h.01',
+    g_gift: 'M4 10h16v10H4zM3 7h18v3H3zM12 7v13M12 7c-1-3-5-4-5-1.5S12 7 12 7zM12 7c1-3 5-4 5-1.5S12 7 12 7z',
+    g_pet: 'M8 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM16 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM12 13c-3 0-5 3-5 5s2 2 5 2 5 0 5-2-2-5-5-5z', trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   };
   const icon = (n) => s('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }, s('path', { d: ICONS[n] }));
 
@@ -192,6 +206,31 @@
     return runRule(r, false);
   }
 
+  /* category groups: a level above categories (expense categories only) */
+  const GROUP_ICONS = ['g_travel', 'g_bag', 'g_coins', 'g_doc', 'g_family', 'g_home', 'g_food', 'g_car', 'g_health', 'g_fun', 'g_work', 'g_gift', 'g_pet', 'g_tag'];
+  const GROUP_COLORS = ['#2bc4b0', '#f0619c', '#7c74b8', '#36bfe3', '#4cbf59', '#c45fd8', '#f59e0b', '#e3b512', '#ef5b6b', '#a67ef0', '#3b82f6', '#64748b'];
+  const DEFAULT_GROUPS = [
+    ['travel', 'חופשות וטיולים', 'g_travel', 0, /חו"ל|נסיע|טיול|חופש|מלון|טיס/],
+    ['eat', 'אוכלים בחוץ', 'g_food', 6, /אוכל בחוץ|מסעד|משלוח|קפה|בר(ים)?$/],
+    ['car', 'רכב ותחבורה', 'g_car', 7, /רכב|דלק|תחבור|מונית|חני|ליסינג|טסט/],
+    ['health', 'בריאות וטיפוח אישי', 'g_health', 8, /בריאות|פארם|טיפוח|רופא|תרופ|שיניים|קוסמטי|ספר(ות)?$/],
+    ['fin', 'שירותים פיננסיים', 'g_doc', 3, /ביטוח|עמל|בנק|ריבית|הלוואה|משכנתא|אגרות|ממשלה|מיסים|מס /],
+    ['family', 'ילדים, משפחה והשכלה', 'g_family', 4, /לימוד|קורס|ילד|גן |חינוך|השכלה|משפחה|חוג|בית ספר/],
+    ['home', 'משק בית', 'g_home', 5, /בית|חשמל|מים|ארנונה|גז|ועד|שכירות|תקשורת|מנוי|ניקיון|תחזוק/],
+    ['fun', 'פנאי, תרבות והעשרה', 'g_fun', 9, /פנאי|בילוי|תרבות|הופע|סרט|ספרים|ספורט|כושר|תחביב/],
+    ['shop', 'עושים קניות', 'g_bag', 1, /סופר|מכולת|ביגוד|הנעלה|אלקטרוניקה|מתנ|קניות|ריהוט|צעצוע/],
+    ['biz', 'שירותים עסקיים', 'g_work', 10, /עסק/],
+    ['misc', 'שונות', 'g_coins', 2, null],
+  ];
+  const groups = () => D().groups || [];
+  const groupById = (id) => groups().find((g) => g.id === id);
+  const miscGroup = () => groups().find((g) => g.key === 'misc') || groups()[groups().length - 1];
+  // every expense category belongs to exactly one group; unknown or missing -> "שונות"
+  const groupOf = (c) => (c && c.type === 'expense' ? groupById(c.group) || miscGroup() : null);
+  const guessGroup = (name) => { const d = DEFAULT_GROUPS.find((g) => g[4] && g[4].test(name || '')); const k = d ? d[0] : 'misc'; const g = groups().find((x) => x.key === k); return g ? g.id : (miscGroup() || {}).id; };
+  const catsOfGroup = (gid) => expenseCats().filter((c) => (groupOf(c) || {}).id === gid);
+  const gIcon = (g, size) => h('span', { class: 'gicon', style: `color:${g.color};${size ? `width:${size}px;height:${size}px` : ''}` }, icon(ICONS[g.icon] ? g.icon : 'g_tag'));
+
   function budgetFor(catId, month) {
     const o = D().budgets[month];
     if (o && o[catId] != null) return o[catId];
@@ -295,7 +334,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -346,6 +385,9 @@
     const max = Math.max(1, ...cats.map((r) => Math.max(r.spent, r.budget)));
 
     const rows = cats.map(({ c, spent, budget }) => {
+      const row = budgetRow(c, spent, budget, max, m); row._cat = c; return row;
+    });
+    function budgetRow(c, spent, budget, max, m) {
       const over = budget > 0 && spent > budget;
       const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : (spent / max) * 100;
       return h('div', { class: 'brow' + (budget ? '' : ' nobudget'), role: 'button', tabindex: 0, onclick: () => drill({ cat: c.id, month: m }) },
@@ -353,7 +395,29 @@
         h('div', { class: 'figs' }, h('b', null, amt(spent)), budget ? [' / ', amt(budget)] : h('span', { class: 'faint' }, ' · ללא תקציב'),
           over ? h('div', { class: 'tag-over' }, 'חריגה ', amt(spent - budget)) : budget ? h('div', { class: 'faint' }, Math.round((spent / budget) * 100) + '% · נותרו ', amt(budget - spent)) : null),
         h('div', { class: 'bar', 'aria-hidden': 'true' }, h('i', { class: over ? 'over' : '', style: `width:${pct}%` })));
-    });
+    }
+    // groups: one line per group (icon, name, total, colored bar), tap to open its categories
+    function groupRows(cats, rows, m) {
+      const gl = groups().map((g) => {
+        const mine = cats.filter((r) => (groupOf(r.c) || {}).id === g.id);
+        return { g, mine, spent: mine.reduce((n, r) => n + r.spent, 0), budget: mine.reduce((n, r) => n + r.budget, 0) };
+      }).filter((x) => x.mine.length).sort((a, b) => b.spent - a.spent);
+      const gmax = Math.max(1, ...gl.map((x) => x.spent));
+      return h('div', { class: 'glist' }, gl.map(({ g, mine, spent, budget }) => {
+        const open = ui.openGroups.has(g.id); const over = budget > 0 && spent > budget;
+        const toggle = () => { if (open) ui.openGroups.delete(g.id); else ui.openGroups.add(g.id); render(); };
+        return h('div', { class: 'gblock' + (open ? ' open' : '') },
+          h('div', { class: 'grow-row', role: 'button', tabindex: 0, 'aria-expanded': open ? 'true' : 'false', onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } } },
+            gIcon(g),
+            h('div', { class: 'gtext' }, h('div', { class: 'gname' }, g.name),
+              h('div', { class: 'gsum' }, amt(spent), budget ? h('span', { class: 'faint' }, ' / ', amt(budget)) : null, over ? h('span', { class: 'tag-over' }, ' חריגה ', amt(spent - budget)) : null)),
+            h('div', { class: 'gbar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.max(3, (spent / gmax) * 100)}%;background:${g.color}` })),
+            h('span', { class: 'chev', 'aria-hidden': 'true' }, open ? '▴' : '▾')),
+          open ? h('div', { class: 'gcats' },
+            rows.filter((r) => mine.some((x) => x.c === r._cat)),
+            h('button', { class: 'btn small', onclick: () => drill({ group: g.id, month: m }) }, 'כל העסקאות בקבוצה ›')) : null);
+      }));
+    }
 
     const noneSum = st.byCat._none || 0;
     const future = upcomingInstallments(m);
@@ -381,8 +445,12 @@
         h('button', { class: 'btn small primary', onclick: () => setView('classify', { back: 'month' }, true) }, 'סיווג מהיר ›'),
         h('button', { class: 'btn small', onclick: () => drill({ month: m, onlyNone: true }) }, 'רשימה')) : null,
       h('section', { class: 'card' },
-        h('div', { class: 'section-title' }, h('h2', null, 'תקציב מול ביצוע'), h('span', { class: 'faint' }, 'לחיצה על קטגוריה מציגה את העסקאות')),
-        rows.length ? h('div', { class: 'budgets' }, rows) : h('div', { class: 'empty' }, 'אין עדיין נתונים לחודש הזה. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); setView('import'); } }, 'ייבוא קובץ ›')),
+        h('div', { class: 'section-title' }, h('h2', null, ui.byGroup ? 'לפי קבוצות' : 'תקציב מול ביצוע'),
+          h('div', { class: 'seg', role: 'group', 'aria-label': 'תצוגה' },
+            h('button', { 'aria-pressed': ui.byGroup ? 'true' : 'false', onclick: () => { ui.byGroup = true; render(); } }, 'קבוצות'),
+            h('button', { 'aria-pressed': ui.byGroup ? 'false' : 'true', onclick: () => { ui.byGroup = false; render(); } }, 'קטגוריות'))),
+        !rows.length ? h('div', { class: 'empty' }, 'אין עדיין נתונים לחודש הזה. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); setView('import'); } }, 'ייבוא קובץ ›'))
+          : ui.byGroup ? groupRows(cats, rows, m) : h('div', { class: 'budgets' }, rows),
         noneSum ? h('div', { class: 'faint', style: 'margin-top:8px' }, 'לא מסווג: ', amt(noneSum)) : null,
         st.transfers ? h('div', { class: 'faint' }, 'העברות וחיסכון (לא נספרות כהוצאה): ', amt(st.transfers)) : null),
       future.length ? h('section', { class: 'card' },
@@ -430,6 +498,7 @@
       if (f.min !== '' && f.min != null && !(t.amount != null && t.amount >= +f.min)) return false;
       if (f.max !== '' && f.max != null && !(t.amount != null && t.amount <= +f.max)) return false;
       if (f.onlyNone && (t.cat || (t.splits && t.splits.length) || t.excluded)) return false;
+      if (f.group) { const inG = (cid) => { const c = catById(cid); return !!c && (groupOf(c) || {}).id === f.group; }; if (!(inG(t.cat) || (t.splits || []).some((sp) => inG(sp.cat)))) return false; }
       if (f.cat) {
         if (f.cat === '_none') { if (t.cat || (t.splits && t.splits.length)) return false; }
         else if (!(t.cat === f.cat || (t.splits || []).some((sp) => sp.cat === f.cat))) return false;
@@ -451,7 +520,7 @@
 
   function viewTxns() {
     const list = filteredTxns();
-    const total = list.reduce((n, t) => n + (ignoredCard(t) ? [{ cat: t.cat, amount: t.amount || 0 }] : parts(t)).reduce((m, p) => m + (ui.f.cat && ui.f.cat !== '_none' && t.splits ? (p.cat === ui.f.cat ? p.amount : 0) : p.amount), 0), 0);
+    const total = list.reduce((n, t) => n + (ignoredCard(t) ? [{ cat: t.cat, amount: t.amount || 0 }] : parts(t)).reduce((m, p) => m + (ui.f.cat && ui.f.cat !== '_none' && t.splits ? (p.cat === ui.f.cat ? p.amount : 0) : ui.f.group && t.splits ? ((groupOf(catById(p.cat)) || {}).id === ui.f.group ? p.amount : 0) : p.amount), 0), 0);
     const cards = [...new Set(D().txns.map(cardLabel))].sort();
     const ignoredLabels = new Set(Object.values(D().cards).filter((c) => c.ignored).map((c) => c.label));
     const hiddenCount = ui.f.card ? 0 : D().txns.filter(ignoredCard).length;
@@ -482,11 +551,12 @@
         h('div', { class: 'row amtrow' }, amountInput('dFrom', 'מיום', true), amountInput('dTo', 'עד יום', true)),
         h('div', { class: 'faint basisnote' }, `חודשים ${basisLabel()} · ימים לפי תאריך העסקה, בכל חודש שבטווח (אפשר גם 28 עד 3)`)),
       h('div', { class: 'row faint' }, `${list.length} עסקאות · סה"כ `, amt(total),
-        (ui.f.q || ui.f.cat || ui.f.card || ui.f.month || ui.f.mFrom || ui.f.mTo || ui.f.dFrom !== '' || ui.f.dTo !== '' || ui.f.onlyNone || ui.f.abroad || ui.f.standing || ui.f.min !== '' || ui.f.max !== '' || ui.f.rule) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
+        (ui.f.q || ui.f.cat || ui.f.group || ui.f.card || ui.f.month || ui.f.mFrom || ui.f.mTo || ui.f.dFrom !== '' || ui.f.dTo !== '' || ui.f.onlyNone || ui.f.abroad || ui.f.standing || ui.f.min !== '' || ui.f.max !== '' || ui.f.rule) ? h('button', { class: 'btn small', onclick: () => { ui.f = EMPTY_F(); render(); } }, 'ניקוי סינון') : null,
         hiddenCount ? h('span', { class: 'faint' }, `· ${hiddenCount} מכרטיסים מוחרגים מוסתרות`) : null,
         ui.f.card && ignoredLabels.has(ui.f.card) ? h('span', { class: 'pill warn' }, 'כרטיס מוחרג — לא נספר') : null,
         ui.f.rule && ruleById(ui.f.rule) ? h('button', { class: 'pill accent', onclick: () => { ui.f.rule = ''; render(); } }, 'חוק: ' + ruleText(ruleById(ui.f.rule)) + ' ✕') : null,
         ui.f.standing ? h('button', { class: 'pill accent', onclick: () => { ui.f.standing = false; render(); } }, 'הוראות קבע ✕') : null,
+        ui.f.group && groupById(ui.f.group) ? h('button', { class: 'pill accent', onclick: () => { ui.f.group = ''; render(); } }, 'קבוצה: ' + groupById(ui.f.group).name + ' ✕') : null,
         h('select', { class: 'sortsel', 'aria-label': 'מיון', style: 'margin-inline-start:auto', onchange: (e) => { ui.sort = e.target.value; try { sessionStorage.setItem('kupa-sort', ui.sort); } catch (x) { /* ignore */ } render(); } },
           Object.entries(SORTS).map(([k, v]) => h('option', { value: k, selected: ui.sort === k }, '↕ ' + v.label))),
         h('button', { class: 'btn small', onclick: () => setView('classify', { back: 'txns' }, true) }, 'סיווג מהיר'),
@@ -568,23 +638,27 @@
     sheet('קטגוריה חדשה', (close) => {
       const name = h('input', { type: 'text', placeholder: 'למשל: חוגים, רכב — טיפולים, חיסכון לדירה', maxlength: '40', value: prefill || '' });
       const budget = h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', placeholder: '0' });
-      let type = 'expense';
+      let type = 'expense'; let gTouched = false;
+      const gsel = h('select', { 'aria-label': 'קבוצה', onchange: () => { gTouched = true; } }, groups().map((g) => h('option', { value: g.id }, g.name)));
+      gsel.value = guessGroup(prefill || '');
+      name.addEventListener('input', () => { if (!gTouched) gsel.value = guessGroup(name.value); });
+      const gField = h('label', { class: 'field' }, h('span', null, 'קבוצה'), gsel);
       const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג' });
       const drawSeg = () => seg.replaceChildren(...[['expense', 'הוצאה'], ['transfer', 'העברה'], ['income', 'הכנסה']].map(([k, v]) =>
-        h('button', { type: 'button', 'aria-pressed': type === k ? 'true' : 'false', onclick: () => { type = k; budget.disabled = k !== 'expense'; drawSeg(); } }, v)));
+        h('button', { type: 'button', 'aria-pressed': type === k ? 'true' : 'false', onclick: () => { type = k; budget.disabled = k !== 'expense'; gField.hidden = k !== 'expense'; drawSeg(); } }, v)));
       drawSeg();
       const save = () => {
         const n = name.value.trim();
         if (!n) return toast('צריך שם');
         if (D().categories.some((c) => c.name === n)) return toast('כבר יש קטגוריה בשם הזה');
-        created = { id: uid(), name: n, type, budget: type === 'expense' ? Math.max(0, +budget.value || 0) : 0 };
+        created = { id: uid(), name: n, type, budget: type === 'expense' ? Math.max(0, +budget.value || 0) : 0, group: type === 'expense' ? gsel.value : undefined };
         D().categories.push(created); S.save(); close();
       };
       setTimeout(() => name.focus(), 50);
       name.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
       return h('div', { class: 'stack' },
         h('label', { class: 'field' }, h('span', null, 'שם'), name),
-        seg,
+        seg, gField,
         h('label', { class: 'field' }, h('span', null, 'תקציב חודשי (אפשר להשאיר ריק)'), budget),
         h('div', { class: 'faint' }, 'העברה = לא נספרת כהוצאה (למשל העברה לחיסכון). אפשר לשנות ולמחוק בהגדרות.'),
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'יצירה')));
@@ -850,7 +924,10 @@
     const firstIdx = stats.findIndex((s) => s.spent);
     const active = firstIdx < 0 ? 1 : stats.length - firstIdx;
     const avg = (id) => stats.reduce((n, s) => n + (s.byCat[id] || 0), 0) / active;
-    const catRows = cats.map((c) => ({ c, vals: stats.map((s) => s.byCat[c.id] || 0), avg: avg(c.id) })).filter((r) => r.vals.some(Boolean)).sort((a, b) => b.avg - a.avg);
+    const gsum = (byCat, g) => catsOfGroup(g.id).reduce((n, c) => n + (byCat[c.id] || 0), 0);
+    const catRows = ui.repGroups
+      ? groups().map((g) => ({ g, c: { id: g.id, name: g.name }, f: { group: g.id }, vals: stats.map((s) => gsum(s.byCat, g)) })).map((r) => ({ ...r, avg: r.vals.reduce((n, v) => n + v, 0) / active })).filter((r) => r.vals.some(Boolean)).sort((a, b) => b.avg - a.avg)
+      : cats.map((c) => ({ c, f: { cat: c.id }, vals: stats.map((s) => s.byCat[c.id] || 0), avg: avg(c.id) })).filter((r) => r.vals.some(Boolean)).sort((a, b) => b.avg - a.avg);
     const noneVals = stats.map((s) => s.byCat._none || 0);
     const maxCell = Math.max(1, ...catRows.flatMap((r) => r.vals));
 
@@ -884,7 +961,10 @@
     const all = allMonths();
     ui.cmpB = ui.cmpB || end; ui.cmpA = ui.cmpA || addMonths(ui.cmpB, -1);
     const A = monthStats(ui.cmpA), B = monthStats(ui.cmpB);
-    const cmpRows = cats.map((c) => ({ c, a: A.byCat[c.id] || 0, b: B.byCat[c.id] || 0 })).filter((r) => r.a || r.b).sort((x, y) => Math.abs(y.b - y.a) - Math.abs(x.b - x.a));
+    const cmpRows = (ui.repGroups ? groups().map((g) => ({ c: { id: g.id, name: g.name }, grp: true, a: gsum(A.byCat, g), b: gsum(B.byCat, g) })) : cats.map((c) => ({ c, a: A.byCat[c.id] || 0, b: B.byCat[c.id] || 0 }))).filter((r) => r.a || r.b).sort((x, y) => Math.abs(y.b - y.a) - Math.abs(x.b - x.a));
+    const grpSeg = () => h('div', { class: 'seg', role: 'group', 'aria-label': 'רמה' },
+      h('button', { 'aria-pressed': ui.repGroups ? 'true' : 'false', onclick: () => { ui.repGroups = true; render(); } }, 'קבוצות'),
+      h('button', { 'aria-pressed': ui.repGroups ? 'false' : 'true', onclick: () => { ui.repGroups = false; render(); } }, 'קטגוריות'));
     const dc = (f, cls, style, ...kids) => h('td', { class: (cls || '') + ' drill', style, role: 'link', tabindex: 0, title: 'הצג עסקאות', onclick: () => drill(f), onkeydown: (e) => { if (e.key === 'Enter') drill(f); } }, ...kids);
     const monthOpts = (sel) => all.slice().reverse().map((m) => h('option', { value: m, selected: m === sel }, mLabel(m)));
 
@@ -908,21 +988,21 @@
               h('td', { class: 'n faint' }, r.sum ? Math.round((r.abroad / r.sum) * 100) + '%' : ''))),
             h('tr', { class: 'total' }, h('td', null, 'סה"כ'), shownIdx.map((i) => dc({ month: months[i] }, 'n', null, nf0.format(cardMonthTotals[i]))), h('td', { class: 'n' }, nf0.format(cardGrand)), h('td'), h('td', { class: 'n' }, cardRows.reduce((n, r) => n + r.n, 0)), h('td')))))) : null,
       h('section', { class: 'card' },
-        h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות לאורך זמן'), h('span', { class: 'faint' }, 'כהה יותר = יותר כסף')),
+        h('div', { class: 'section-title' }, h('h2', null, (ui.repGroups ? 'קבוצות' : 'קטגוריות') + ' לאורך זמן'), h('span', { class: 'faint' }, 'כהה יותר = יותר כסף'), grpSeg()),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
-          h('thead', null, h('tr', null, h('th', null, 'קטגוריה'), months.map((m) => h('th', { class: 'n' }, mShort(m))), h('th', { class: 'n' }, 'ממוצע'))),
+          h('thead', null, h('tr', null, h('th', null, ui.repGroups ? 'קבוצה' : 'קטגוריה'), months.map((m) => h('th', { class: 'n' }, mShort(m))), h('th', { class: 'n' }, 'ממוצע'))),
           h('tbody', null,
-            catRows.map((r) => h('tr', null, dc({ cat: r.c.id }, '', null, r.c.name), r.vals.map((v, i) => v ? dc({ cat: r.c.id, month: months[i] }, 'n', `background: color-mix(in srgb, var(--bar) ${Math.round((v / maxCell) * 55)}%, transparent)`, nf0.format(v)) : h('td', { class: 'n' }, '·')), h('td', { class: 'n' }, h('b', null, nf0.format(r.avg))))),
+            catRows.map((r) => h('tr', null, dc(r.f, '', null, r.g ? h('span', { class: 'gcell' }, gIcon(r.g, 18), r.c.name) : r.c.name), r.vals.map((v, i) => v ? dc({ ...r.f, month: months[i] }, 'n', `background: color-mix(in srgb, var(--bar) ${Math.round((v / maxCell) * 55)}%, transparent)`, nf0.format(v)) : h('td', { class: 'n' }, '·')), h('td', { class: 'n' }, h('b', null, nf0.format(r.avg))))),
             noneVals.some(Boolean) ? h('tr', null, dc({ cat: '_none' }, 'faint', null, 'לסיווג'), noneVals.map((v, i) => v ? dc({ cat: '_none', month: months[i] }, 'n faint', null, nf0.format(v)) : h('td', { class: 'n faint' }, '·')), h('td', null)) : null,
             h('tr', { class: 'total' }, h('td', null, 'סה"כ'), stats.map((s) => s.spent ? dc({ month: s.m }, 'n', null, nf0.format(s.spent)) : h('td', { class: 'n' }, '0')), h('td', { class: 'n' }, nf0.format(stats.reduce((n, s) => n + s.spent, 0) / active))))))),
       h('section', { class: 'card' },
-        h('div', { class: 'section-title' }, h('h2', null, 'השוואת חודשים')),
+        h('div', { class: 'section-title' }, h('h2', null, 'השוואת חודשים'), grpSeg()),
         h('div', { class: 'fields', style: 'margin-bottom:10px' },
           h('select', { 'aria-label': 'חודש א', onchange: (e) => { ui.cmpA = e.target.value; render(); } }, monthOpts(ui.cmpA)),
           h('select', { 'aria-label': 'חודש ב', onchange: (e) => { ui.cmpB = e.target.value; render(); } }, monthOpts(ui.cmpB))),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
-          h('thead', null, h('tr', null, h('th', null, 'קטגוריה'), h('th', { class: 'n' }, mShort(ui.cmpA)), h('th', { class: 'n' }, mShort(ui.cmpB)), h('th', { class: 'n' }, 'שינוי'))),
-          h('tbody', null, cmpRows.map((r) => diffRow(r.c.name, r.a, r.b, false, dc, r.c.id)), diffRow('סה"כ', A.spent, B.spent, true, dc, null))))),
+          h('thead', null, h('tr', null, h('th', null, ui.repGroups ? 'קבוצה' : 'קטגוריה'), h('th', { class: 'n' }, mShort(ui.cmpA)), h('th', { class: 'n' }, mShort(ui.cmpB)), h('th', { class: 'n' }, 'שינוי'))),
+          h('tbody', null, cmpRows.map((r) => diffRow(r.c.name, r.a, r.b, false, dc, r.c.id, r.grp)), diffRow('סה"כ', A.spent, B.spent, true, dc, null))))),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'בתי העסק הגדולים'), h('span', { class: 'faint' }, `${ui.reportRange} חודשים`)),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
@@ -933,10 +1013,11 @@
         kpiLink('הוראות קבע', amt(standing), { standing: true }), kpi('ממוצע חודשי', amt(totalRange / active))));
   }
 
-  function diffRow(name, a, b, total, dc, catId) {
+  function diffRow(name, a, b, total, dc, catId, isGroup) {
     const d = b - a; const pct = a ? Math.round((d / a) * 100) : null;
-    const f = (m) => (catId ? { cat: catId, month: m } : { month: m });
-    return h('tr', { class: total ? 'total' : '' }, catId ? dc({ cat: catId }, '', null, name) : h('td', null, name),
+    const k = isGroup ? 'group' : 'cat';
+    const f = (m) => (catId ? { [k]: catId, month: m } : { month: m });
+    return h('tr', { class: total ? 'total' : '' }, catId ? dc({ [k]: catId }, '', null, name) : h('td', null, name),
       a ? dc(f(ui.cmpA), 'n', null, nf0.format(a)) : h('td', { class: 'n' }, '0'), b ? dc(f(ui.cmpB), 'n', null, nf0.format(b)) : h('td', { class: 'n' }, '0'),
       h('td', { class: 'n ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') }, h('span', { class: 'amt' }, (d > 0 ? '+' : d < 0 ? '−' : '') + nf0.format(Math.abs(d))), pct != null && d ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''));
   }
@@ -1196,7 +1277,7 @@
           let made = 0, cats = 0, tx = 0;
           for (const x of items.filter((i) => i.on)) {
             let c = x.catId && x.catId !== '__new' ? catById(x.catId) : catByName(x.cat);
-            if (!c) { c = { id: uid(), name: x.cat, type: 'expense', budget: 0 }; D().categories.push(c); cats++; }
+            if (!c) { c = { id: uid(), name: x.cat, type: 'expense', budget: 0, group: guessGroup(x.cat) }; D().categories.push(c); cats++; }
             const r = { id: uid(), kind: x.kind, text: x.text, cat: c.id, auto: false, min: '', max: '' };
             D().rules.unshift(r); made++; tx += runRule(r, includeManual.checked);
           }
@@ -1613,11 +1694,13 @@
     let catQ = '';
     const catSearch = h('input', { type: 'search', placeholder: 'חיפוש קטגוריה…', 'aria-label': 'חיפוש קטגוריה', oninput: (e) => { catQ = e.target.value.trim().toLowerCase(); drawCats(); } });
     const drawCats = () => catBox.replaceChildren(
-      h('div', { class: 'catedit faint', style: 'border:0' }, h('span', null, 'שם (א–ב)'), h('span', null, 'תקציב חודשי'), h('span', { class: 'typesel' }, 'סוג'), h('span')),
+      h('div', { class: 'catedit faint', style: 'border:0' }, h('span', null, 'שם (א–ב)'), h('span', null, 'תקציב חודשי'), h('span', { class: 'groupsel' }, 'קבוצה'), h('span', { class: 'typesel' }, 'סוג'), h('span')),
       ...D().categories.slice().sort((a, b) => heCmp(a.name, b.name)).filter((c) => !catQ || c.name.toLowerCase().includes(catQ)).map((c) => h('div', { class: 'catedit' },
         h('input', { type: 'text', value: c.name, 'aria-label': 'שם קטגוריה', onchange: (e) => { c.name = e.target.value.trim() || c.name; S.save(); drawCats(); } }),
         h('input', { type: 'number', min: '0', step: '50', inputmode: 'numeric', value: c.budget || '', placeholder: '0', disabled: c.type !== 'expense', 'aria-label': 'תקציב', onchange: (e) => { c.budget = Math.max(0, +e.target.value || 0); S.save(); } }),
-        h('select', { class: 'typesel', 'aria-label': 'סוג', onchange: (e) => { c.type = e.target.value; S.save(); drawCats(); } }, Object.entries(types).map(([k, v]) => h('option', { value: k, selected: c.type === k }, v))),
+        h('select', { class: 'groupsel', 'aria-label': 'קבוצה', disabled: c.type !== 'expense', onchange: (e) => { c.group = e.target.value; S.save(); drawGroups(); } },
+          c.type !== 'expense' ? h('option', null, '—') : groups().map((g) => h('option', { value: g.id, selected: (groupOf(c) || {}).id === g.id }, g.name))),
+        h('select', { class: 'typesel', 'aria-label': 'סוג', onchange: (e) => { c.type = e.target.value; if (c.type === 'expense' && !groupById(c.group)) c.group = guessGroup(c.name); S.save(); drawCats(); drawGroups(); } }, Object.entries(types).map(([k, v]) => h('option', { value: k, selected: c.type === k }, v))),
         h('button', { class: 'icon-btn', 'aria-label': 'מחיקת קטגוריה', onclick: () => {
           const used = D().txns.filter((t) => t.cat === c.id || (t.splits || []).some((sp) => sp.cat === c.id)).length;
           sheet(`למחוק את "${c.name}"?`, (close) => h('div', { class: 'stack' }, h('p', { class: 'muted' }, used ? `${used} עסקאות בקטגוריה יחזרו ל"לסיווג". חוקי הסיווג שלה יימחקו.` : 'אין בה עסקאות.'),
@@ -1631,6 +1714,37 @@
         h('button', { class: 'btn', onclick: () => openNewCategory((c) => { if (c) { catQ = ''; catSearch.value = ''; drawCats(); } }) }, '+ קטגוריה'),
         h('span', { class: 'faint' }, 'סה"כ תקציב חודשי: ', amt(expenseCats().reduce((n, c) => n + (c.budget || 0), 0)))));
     drawCats();
+
+    // groups: name, icon, color; deleting one moves its categories to "שונות"
+    const groupBox = h('div');
+    function openIconPick(g) {
+      sheet('אייקון לקבוצה', (close) => h('div', { class: 'iconpick' }, GROUP_ICONS.map((ic) => h('button', { class: 'gpick' + (g.icon === ic ? ' on' : ''), 'aria-label': ic, style: `color:${g.color}`, onclick: () => { g.icon = ic; S.save(); close(); drawGroups(); } }, icon(ic)))));
+    }
+    function drawGroups() {
+      groupBox.replaceChildren(
+        ...groups().map((g) => {
+          const n = catsOfGroup(g.id).length; const isMisc = g === miscGroup();
+          return h('div', { class: 'gedit' },
+            h('button', { class: 'gpick', 'aria-label': 'החלפת אייקון', title: 'החלפת אייקון', style: `color:${g.color}`, onclick: () => openIconPick(g) }, icon(ICONS[g.icon] ? g.icon : 'g_tag')),
+            h('input', { type: 'text', value: g.name, 'aria-label': 'שם קבוצה', onchange: (e) => { g.name = e.target.value.trim() || g.name; S.save(); drawCats(); } }),
+            h('input', { type: 'color', value: g.color, 'aria-label': 'צבע', onchange: (e) => { g.color = e.target.value; S.save(); drawGroups(); } }),
+            h('span', { class: 'faint gcount' }, n + ' קט׳'),
+            isMisc ? h('span', { class: 'faint', title: 'קבוצת ברירת המחדל' }, '·') : h('button', { class: 'icon-btn', 'aria-label': 'מחיקת קבוצה', onclick: () => {
+              sheet(`למחוק את הקבוצה "${g.name}"?`, (close) => h('div', { class: 'stack' }, h('p', { class: 'muted' }, n ? `${n} הקטגוריות שבה יעברו ל"${miscGroup().name}". הקטגוריות והעסקאות לא נמחקות.` : 'אין בה קטגוריות.'),
+                h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+                  const to = miscGroup().id; for (const c of D().categories) if (c.group === g.id) c.group = to;
+                  D().groups = groups().filter((x) => x !== g); S.save(); close(); render(); } }, 'מחיקה'), h('button', { class: 'btn', onclick: close }, 'ביטול'))));
+            } }, icon('trash')));
+        }),
+        h('div', { class: 'row', style: 'margin-top:10px' },
+          h('button', { class: 'btn', onclick: () => {
+            const used = new Set(groups().map((g) => g.color));
+            D().groups.push({ id: uid(), key: '', name: 'קבוצה חדשה', icon: 'g_tag', color: GROUP_COLORS.find((c) => !used.has(c)) || '#64748b' });
+            S.save(); drawGroups(); drawCats(); const ins = groupBox.querySelectorAll('.gedit input[type=text]'); const last = ins[ins.length - 1]; if (last) { last.focus(); last.select(); }
+          } }, '+ קבוצה'),
+          h('span', { class: 'faint' }, 'שיוך קטגוריה לקבוצה — בטבלת הקטגוריות למטה')));
+    }
+    drawGroups();
 
     // month override
     const ov = D().budgets[m] || {};
@@ -1652,6 +1766,7 @@
 
     return h('main', { class: 'stack' },
       h('h1', null, 'הגדרות'),
+      h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'קבוצות'), h('span', { class: 'faint' }, 'רמה מעל הקטגוריות · תקציב קבוצה = סכום הקטגוריות שבה')), groupBox),
       h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'קטגוריות ותקציב קבוע')), h('div', { style: 'margin-bottom:8px' }, catSearch), catBox),
       h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'תקציב לחודש מסוים')), ovBox),
       h('section', { class: 'card stack' },
@@ -1805,6 +1920,11 @@
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
     d.invest = d.invest || { txns: [], prices: {}, settings: { fee: 8, cgt: 0.25 } };
     d.invest.prices = d.invest.prices || {}; d.invest.settings = Object.assign({ fee: 8, cgt: 0.25 }, d.invest.settings || {});
+    if (!d.groups || !d.groups.length) { // 3.7: category groups
+      d.groups = DEFAULT_GROUPS.slice().sort((x, y) => x[3] - y[3]).map(([key, name, ic, ci]) => ({ id: uid(), key, name, icon: ic, color: GROUP_COLORS[ci] })); // shown in this order
+      for (const c of d.categories) if (c.type === 'expense' && !groupById(c.group)) c.group = guessGroup(c.name);
+      S.save();
+    }
     if (!d.settings.mig25) { // built-in 'טרמינל' caught 'היינמן טרמינל' (airport) as clothing
       const bad = (d.rules || []).filter((r) => r.auto && r.text === 'טרמינל');
       if (bad.length) {
