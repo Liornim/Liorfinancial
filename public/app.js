@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.11'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab
+  const VERSION = '3.12'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -337,7 +337,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { repTab: 'overview', cmp: { dim: 'group', mode: 'counted', open: new Set(), limit: 40 }, e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -919,7 +919,10 @@
   }
 
   /* ---------------- view: reports ---------------- */
+  const repTabs = () => h('div', { class: 'seg', role: 'group', 'aria-label': 'סוג דוח' },
+    [['overview', 'סקירה'], ['cmp', 'השוואה']].map(([k, l]) => h('button', { 'aria-pressed': ui.repTab === k ? 'true' : 'false', onclick: () => { ui.repTab = k; render(); } }, l)));
   function viewReports() {
+    if (ui.repTab === 'cmp') return viewCompare();
     const end = thisMonth() > (allMonths().slice(-1)[0] || '') ? thisMonth() : allMonths().slice(-1)[0];
     const months = []; for (let i = ui.reportRange - 1; i >= 0; i--) months.push(addMonths(end, -i));
     const stats = months.map((m) => ({ m, ...monthStats(m) }));
@@ -987,7 +990,7 @@
       ]);
     };
     return h('main', { class: 'stack' },
-      h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'דוחות', h('span', { class: 'faint', style: 'font-size:13px;font-weight:400;margin-inline-start:8px' }, basisLabel())),
+      h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'דוחות', h('span', { class: 'faint', style: 'font-size:13px;font-weight:400;margin-inline-start:8px' }, basisLabel())), repTabs(),
         h('div', { class: 'seg', role: 'group', 'aria-label': 'טווח' }, [3, 6, 12, 24].map((n) => h('button', { 'aria-pressed': ui.reportRange === n ? 'true' : 'false', onclick: () => { ui.reportRange = n; render(); } }, n + ' ח׳'))), xlBtn(repExport)),
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'הוצאות לפי חודש'), h('span', { class: 'faint' }, `ממוצע (${active} ח׳ עם נתונים) `, amt(stats.reduce((n, s) => n + s.spent, 0) / active))),
@@ -1014,7 +1017,7 @@
             noneVals.some(Boolean) ? h('tr', null, dc({ cat: '_none' }, 'faint', null, 'לסיווג'), noneVals.map((v, i) => v ? dc({ cat: '_none', month: months[i] }, 'n faint', null, nf0.format(v)) : h('td', { class: 'n faint' }, '·')), h('td', null)) : null,
             h('tr', { class: 'total' }, h('td', null, 'סה"כ'), stats.map((s) => s.spent ? dc({ month: s.m }, 'n', null, nf0.format(s.spent)) : h('td', { class: 'n' }, '0')), h('td', { class: 'n' }, nf0.format(stats.reduce((n, s) => n + s.spent, 0) / active))))))),
       h('section', { class: 'card' },
-        h('div', { class: 'section-title' }, h('h2', null, 'השוואת חודשים'), grpSeg()),
+        h('div', { class: 'section-title' }, h('h2', null, 'השוואת חודשים'), h('button', { class: 'btn small', onclick: () => { ui.repTab = 'cmp'; render(); window.scrollTo(0, 0); } }, 'להשוואה המלאה ›'), grpSeg()),
         h('div', { class: 'fields', style: 'margin-bottom:10px' },
           h('select', { 'aria-label': 'חודש א', onchange: (e) => { ui.cmpA = e.target.value; render(); } }, monthOpts(ui.cmpA)),
           h('select', { 'aria-label': 'חודש ב', onchange: (e) => { ui.cmpB = e.target.value; render(); } }, monthOpts(ui.cmpB))),
@@ -1029,6 +1032,101 @@
       h('div', { class: 'kpis' },
         kpiLink('חו"ל', amt(abroad), { abroad: true }), kpi('חו"ל מהסך', totalRange ? Math.round((abroad / totalRange) * 100) + '%' : '—'),
         kpiLink('הוראות קבע', amt(standing), { standing: true }), kpi('ממוצע חודשי', amt(totalRange / active))));
+  }
+
+  /* ---------------- month vs month ----------------
+     dimension: group / category / card / merchant; scope: counted only / everything / not counted only.
+     every row opens to the actual expenses of both months. */
+  function viewCompare() {
+    const C = ui.cmp; const all = allMonths();
+    const last = all.slice(-1)[0] || thisMonth();
+    ui.cmpB = ui.cmpB || last; ui.cmpA = ui.cmpA || addMonths(ui.cmpB, -1);
+    const MA = ui.cmpA, MB = ui.cmpB;
+    // expense parts with a "counted" flag; income (refunds, income categories) is left out entirely
+    const items = [];
+    for (const t of D().txns) {
+      const m = monthOf(t); if (m !== MA && m !== MB) continue;
+      if (t.amount == null || t.dir === 'in') continue;
+      const ps = t.splits && t.splits.length ? t.splits.map((sp) => ({ cat: sp.cat, amount: sp.amount })) : [{ cat: t.cat || null, amount: t.amount }];
+      for (const p of ps) {
+        const c = catById(p.cat);
+        if (c && c.type === 'income') continue;
+        const why = ignoredCard(t) ? 'כרטיס מוחרג' : t.excluded ? 'לא נספר' : c && c.type === 'transfer' ? 'העברה' : '';
+        const counted = !why;
+        if (C.mode === 'counted' && !counted) continue;
+        if (C.mode === 'not' && counted) continue;
+        items.push({ t, m, cat: p.cat, c, amount: p.amount, counted, why });
+      }
+    }
+    const DIMS = {
+      group: { label: 'קבוצה', key: (x) => (x.c && x.c.type === 'transfer' ? '_tr' : x.c ? (groupOf(x.c) || {}).id : '_none'),
+        name: (k) => (k === '_none' ? 'לסיווג' : k === '_tr' ? 'העברות' : (groupById(k) || {}).name || '?'), icon: (k) => groupById(k), f: (k) => (k === '_none' ? { cat: '_none' } : k === '_tr' ? null : { group: k }) },
+      cat: { label: 'קטגוריה', key: (x) => x.cat || '_none', name: (k) => (k === '_none' ? 'לסיווג' : catName(k)), f: (k) => ({ cat: k }) },
+      card: { label: 'כרטיס', key: (x) => cardLabel(x.t), name: (k) => k, f: (k) => ({ card: k }) },
+      merch: { label: 'בית עסק', key: (x) => normMerchant(x.t.merchant) || '?', name: (k, r) => (r && r.disp) || k, f: (k, r) => ({ q: (r && r.disp) || k }) },
+    };
+    const dim = DIMS[C.dim];
+    const rowsMap = new Map();
+    for (const x of items) {
+      const k = dim.key(x);
+      const r = rowsMap.get(k) || { k, a: 0, b: 0, na: 0, nb: 0, xa: [], xb: [], disp: x.t.merchant };
+      if (x.m === MA) { r.a += x.amount; r.na++; r.xa.push(x); } else { r.b += x.amount; r.nb++; r.xb.push(x); }
+      rowsMap.set(k, r);
+    }
+    const rows = [...rowsMap.values()].sort((x, y) => Math.abs(y.b - y.a) - Math.abs(x.b - x.a) || (y.a + y.b) - (x.a + x.b));
+    const TA = rows.reduce((n, r) => n + r.a, 0), TB = rows.reduce((n, r) => n + r.b, 0);
+    const shown = C.dim === 'merch' ? rows.slice(0, C.limit) : rows;
+    const pctTxt = (a, b) => (a ? `${b - a > 0 ? '+' : ''}${Math.round(((b - a) / a) * 100)}%` : b ? 'חדש' : '');
+    const diffCell = (a, b) => { const d = b - a; return h('td', { class: 'n ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') }, h('span', { class: 'amt' }, (d > 0 ? '+' : d < 0 ? '−' : '') + nf0.format(Math.abs(d)))); };
+    const goTx = (f, m) => { if (f) drill({ ...f, month: m }); };
+    const txList = (xs, m) => h('div', { class: 'cmptx' },
+      h('div', { class: 'cmptxh' }, h('b', null, mLabel(m)), h('span', { class: 'faint' }, ` · ${xs.length} · `), amt(xs.reduce((n, x) => n + x.amount, 0))),
+      xs.length ? xs.slice().sort((p, q) => q.amount - p.amount).map((x) => h('div', { class: 'cmptxr' + (x.counted ? '' : ' off'), role: 'button', tabindex: 0, onclick: () => openTx(x.t), onkeydown: (e) => { if (e.key === 'Enter') openTx(x.t); } },
+        h('span', { class: 'm' }, x.t.merchant || '(ללא שם)'),
+        h('span', { class: 'faint' }, dShort(x.t.date) + (C.dim === 'cat' ? '' : ' · ' + catName(x.cat)) + (C.dim === 'card' ? '' : ' · ' + cardLabel(x.t)) + (x.why ? ' · ' + x.why : '')),
+        h('span', { class: 'a' }, amt(x.amount, true)))) : h('div', { class: 'faint' }, 'אין'));
+    const body = [];
+    for (const r of shown) {
+      const open = C.open.has(C.dim + '|' + r.k);
+      const toggle = () => { const id = C.dim + '|' + r.k; if (open) C.open.delete(id); else C.open.add(id); render(); };
+      const g = dim.icon ? dim.icon(r.k) : null;
+      const f = dim.f(r.k, r);
+      body.push(h('tr', { class: 'cmprow' + (open ? ' qon' : '') },
+        h('td', { class: 'drill', role: 'button', tabindex: 0, 'aria-expanded': open ? 'true' : 'false', onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter') toggle(); } },
+          h('span', { class: 'gcell' }, h('span', { class: 'chev' }, open ? '▾' : '◂'), g ? gIcon(g, 18) : null, dim.name(r.k, r))),
+        h('td', { class: 'n' + (r.a ? ' drill' : ''), onclick: r.a && f ? () => goTx(f, MA) : null }, r.a ? nf0.format(r.a) : '·', h('span', { class: 'faint cnt' }, r.na ? ` (${r.na})` : '')),
+        h('td', { class: 'n' + (r.b ? ' drill' : ''), onclick: r.b && f ? () => goTx(f, MB) : null }, r.b ? nf0.format(r.b) : '·', h('span', { class: 'faint cnt' }, r.nb ? ` (${r.nb})` : '')),
+        diffCell(r.a, r.b), h('td', { class: 'n faint' }, pctTxt(r.a, r.b))));
+      if (open) body.push(h('tr', { class: 'cmpopen' }, h('td', { colspan: 5 }, h('div', { class: 'cmppair' }, txList(r.xa, MA), txList(r.xb, MB)))));
+    }
+    const monthOpts = (sel) => all.slice().reverse().map((m) => h('option', { value: m, selected: m === sel }, mLabel(m)));
+    const doExport = () => {
+      const head = [dim.label, mLabel(MA), 'עסקאות', mLabel(MB), 'עסקאות', 'שינוי ₪', 'שינוי %'];
+      const sumRows = rows.map((r) => [dim.name(r.k, r), r2x(r.a), r.na, r2x(r.b), r.nb, r2x(r.b - r.a), r.a ? Math.round(((r.b - r.a) / r.a) * 1000) / 10 : '']);
+      const det = [['חודש', dim.label, 'תאריך', 'בית עסק', 'סכום ₪', 'קטגוריה', 'קבוצה', 'כרטיס', 'נספר']];
+      for (const r of rows) for (const x of [...r.xa, ...r.xb]) det.push([mLabel(x.m), dim.name(r.k, r), fullDate(x.t.date), x.t.merchant || '', r2x(x.amount), catName(x.cat), (groupOf(x.c) || {}).name || '', cardLabel(x.t), x.counted ? 'כן' : x.why]);
+      exportXlsx(`kupa-compare-${MA}-vs-${MB}`, [{ name: 'השוואה', rows: [head, ...sumRows, ['סה"כ', r2x(TA), rows.reduce((n, r) => n + r.na, 0), r2x(TB), rows.reduce((n, r) => n + r.nb, 0), r2x(TB - TA), TA ? Math.round(((TB - TA) / TA) * 1000) / 10 : '']] }, { name: 'הוצאות', rows: det }]);
+    };
+    const seg = (label, key, opts) => h('div', { class: 'seg', role: 'group', 'aria-label': label }, opts.map(([k, l]) => h('button', { 'aria-pressed': C[key] === k ? 'true' : 'false', onclick: () => { C[key] = k; C.limit = 40; render(); } }, l)));
+    return h('main', { class: 'stack' },
+      h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'דוחות', h('span', { class: 'faint', style: 'font-size:13px;font-weight:400;margin-inline-start:8px' }, basisLabel())), repTabs(), xlBtn(doExport)),
+      h('section', { class: 'card stack' },
+        h('div', { class: 'row cmpctl' },
+          h('select', { 'aria-label': 'חודש א', onchange: (e) => { ui.cmpA = e.target.value; render(); } }, monthOpts(MA)),
+          h('button', { class: 'icon-btn', title: 'החלפה', 'aria-label': 'החלפת החודשים', onclick: () => { ui.cmpA = MB; ui.cmpB = MA; render(); } }, '⇄'),
+          h('select', { 'aria-label': 'חודש ב', onchange: (e) => { ui.cmpB = e.target.value; render(); } }, monthOpts(MB)),
+          h('button', { class: 'btn small', onclick: () => { ui.cmpB = last; ui.cmpA = addMonths(last, -1); render(); } }, 'אחרון מול קודם')),
+        h('div', { class: 'row cmpctl' },
+          seg('רמה', 'dim', [['group', 'קבוצות'], ['cat', 'קטגוריות'], ['card', 'כרטיסים'], ['merch', 'בתי עסק']]),
+          seg('מה נכלל', 'mode', [['counted', 'רק נספר'], ['all', 'הכול'], ['not', 'רק לא נספר']])),
+        h('div', { class: 'kpis' }, kpi(mLabel(MA), amt(TA)), kpi(mLabel(MB), amt(TB)), kpi('שינוי', h('span', { class: TB - TA > 0 ? 'up' : TB - TA < 0 ? 'down' : '' }, (TB - TA > 0 ? '+' : TB - TA < 0 ? '−' : '') + ils(Math.abs(TB - TA)))), kpi('שינוי %', TA ? pctTxt(TA, TB) : '—')),
+        h('div', { class: 'faint' }, C.mode === 'counted' ? 'רק הוצאות שנספרות בתקציב.' : C.mode === 'all' ? 'כולל הוצאות שסומנו "לא לספור", כרטיסים מוחרגים והעברות (מסומנות באפור).' : 'רק מה שלא נספר: "לא לספור", כרטיסים מוחרגים והעברות.',
+          ' לחיצה על שורה פותחת את ההוצאות של שני החודשים; לחיצה על סכום עוברת לעסקאות.'),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'grid cmptable' },
+          h('thead', null, h('tr', null, h('th', null, dim.label), h('th', { class: 'n' }, mShort(MA)), h('th', { class: 'n' }, mShort(MB)), h('th', { class: 'n' }, 'שינוי'), h('th', { class: 'n' }, '%'))),
+          h('tbody', null, body.length ? body : h('tr', null, h('td', { colspan: 5, class: 'faint' }, 'אין הוצאות בשני החודשים')),
+            h('tr', { class: 'total' }, h('td', null, 'סה"כ'), h('td', { class: 'n' }, nf0.format(TA)), h('td', { class: 'n' }, nf0.format(TB)), diffCell(TA, TB), h('td', { class: 'n faint' }, pctTxt(TA, TB)))))),
+        rows.length > shown.length ? h('button', { class: 'btn', onclick: () => { C.limit += 60; render(); } }, `עוד בתי עסק (${shown.length} מתוך ${rows.length})`) : null));
   }
 
   function diffRow(name, a, b, total, dc, catId, isGroup) {
