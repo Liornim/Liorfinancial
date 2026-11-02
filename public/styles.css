@@ -349,3 +349,29 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .qtable { width: auto; min-width: min(100%, 520px); }
 .qtable td:first-child { min-width: 200px; }
 .qtable td.n, .qtable th.n { min-width: 64px; }
+
+/* wide editor */
+.shell.wide { max-width: 1440px; }
+.efilters { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; align-items: center; }
+.efilters input[type=search] { grid-column: span 2; }
+.efilters .amtrow { gap: 6px; flex-wrap: nowrap; }
+.efilters .enum { width: 100%; min-width: 0; }
+@media (max-width: 520px) { .efilters { grid-template-columns: 1fr 1fr; } .efilters input[type=search], .efilters .amtrow { grid-column: 1 / -1; } }
+.etablecard { padding: 0; overflow: hidden; }
+.etable { font-size: 13.5px; }
+.etable th { position: sticky; top: 0; z-index: 2; }
+.etable th.sortable { cursor: pointer; user-select: none; }
+.etable th.sortable:hover { color: var(--accent); }
+.etable td { vertical-align: middle; }
+.etable td.emerch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.etable td.emerch .linkbtn { font-weight: 600; white-space: nowrap; }
+.etable td.ecat { min-width: 190px; }
+.etable td.ecat .picker { width: 100%; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.etable .esel { font-size: 13px; height: 32px; padding: 2px 6px; width: auto; min-width: 140px; }
+.etable .ememo { font-size: 13px; height: 32px; padding: 2px 8px; min-width: 140px; }
+.etable tr.esel-on > td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.etable tr.eoff > td { color: var(--ink-3); }
+.etable tr.eoff .amt { text-decoration: line-through; }
+.ebulk { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; padding: 8px 12px; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.ebulk .picker { min-width: 200px; width: auto; }
+@media (max-width: 420px) { .tabs button { font-size: 11px; } .tabs button svg { width: 20px; height: 20px; } }
