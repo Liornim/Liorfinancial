@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.7'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups
+  const VERSION = '3.8'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions)
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -42,6 +42,7 @@
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z',
     plus: 'M12 5v14M5 12h14', prev: 'M9 6l6 6-6 6', next: 'M15 6l-6 6 6 6', x: 'M6 6l12 12M18 6L6 18',
     lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3',
+    layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5',
     g_travel: 'M12 4a9 8 0 0 1 9 8H3a9 8 0 0 1 9-8zM12 12v7a2 2 0 0 0 4 0M12 4v-1',
     g_bag: 'M5 8h14l-1 12H6zM9 8V7a3 3 0 0 1 6 0v1',
     g_coins: 'M5 7c0-1.4 3.1-2.5 7-2.5s7 1.1 7 2.5-3.1 2.5-7 2.5S5 8.4 5 7zM5 7v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V7M5 12v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5',
@@ -334,7 +335,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -357,7 +358,7 @@
   }
 
   function shell(content) {
-    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
+    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['quick', 'עדכון', 'layers'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
     return h('div', null,
       h('div', { class: 'shell' },
         h('header', { class: 'topbar' },
@@ -371,7 +372,7 @@
 
   function render() {
     if (!S.data) return;
-    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest };
+    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest, quick: viewQuick };
     $app.replaceChildren(shell(views[ui.view]()));
   }
 
@@ -1686,6 +1687,92 @@
     });
   }
 
+  /* ---------------- view: quick update ----------------
+     groups over time → pick a group → its categories over time (each can move to another group)
+     → pick a category (or one of its months) → its transactions (each can move to another category) */
+  function viewQuick() {
+    const q = ui.q;
+    const all = allMonths();
+    const end = thisMonth() > (all.slice(-1)[0] || '') ? thisMonth() : all.slice(-1)[0];
+    const months = []; for (let i = 0; i < q.range; i++) months.push(addMonths(end, -i)); // newest first
+    const stats = months.map((m) => monthStats(m));
+    let lastIdx = -1; stats.forEach((x, i) => { if (x.spent) lastIdx = i; }); const active = lastIdx < 0 ? 1 : lastIdx + 1; // months since the first with data
+    const sumCats = (byCat, ids) => ids.reduce((n, id) => n + (byCat[id] || 0), 0);
+    if (q.group && q.group !== '_none' && !groupById(q.group)) Object.assign(q, { group: '', cat: '', month: '' });
+    if (q.cat && !catById(q.cat)) Object.assign(q, { cat: '', month: '' });
+    const pick = (patch) => { Object.assign(ui.q, patch); render(); };
+    const cell = (v, on, sel) => v ? h('td', { class: 'n drill' + (sel ? ' qsel' : ''), role: 'button', tabindex: 0, onclick: on, onkeydown: (e) => { if (e.key === 'Enter') on(); } }, nf0.format(v)) : h('td', { class: 'n faint' }, '·');
+    const head = (first) => h('thead', null, h('tr', null, h('th', null, first), h('th', { class: 'n' }, 'ממוצע'), months.map((m) => h('th', { class: 'n' + (q.month === m ? ' qsel' : '') }, mShort(m)))));
+
+    // level 1: groups (+ unclassified)
+    const gRows = groups().map((g) => { const ids = catsOfGroup(g.id).map((c) => c.id); return { g, vals: stats.map((x) => sumCats(x.byCat, ids)) }; })
+      .map((r) => ({ ...r, avg: r.vals.reduce((n, v) => n + v, 0) / active })).filter((r) => r.vals.some(Boolean)).sort((a, b) => b.avg - a.avg);
+    const noneVals = stats.map((x) => x.byCat._none || 0);
+    const gTable = h('table', { class: 'grid qtable' }, head('קבוצה'), h('tbody', null,
+      gRows.map((r) => h('tr', { class: q.group === r.g.id ? 'qon' : '' },
+        h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => pick({ group: q.group === r.g.id ? '' : r.g.id, cat: '', month: '' }), onkeydown: (e) => { if (e.key === 'Enter') pick({ group: r.g.id, cat: '', month: '' }); } }, h('span', { class: 'gcell' }, gIcon(r.g, 18), r.g.name)),
+        h('td', { class: 'n' }, h('b', null, nf0.format(r.avg))),
+        r.vals.map((v, i) => cell(v, () => pick({ group: r.g.id, cat: '', month: months[i] }), q.group === r.g.id && q.month === months[i])))),
+      noneVals.some(Boolean) ? h('tr', { class: q.group === '_none' ? 'qon' : '' },
+        h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => pick({ group: '_none', cat: '', month: '' }) }, h('span', { class: 'gcell faint' }, 'לסיווג')),
+        h('td'), noneVals.map((v, i) => cell(v, () => pick({ group: '_none', cat: '', month: months[i] }), q.group === '_none' && q.month === months[i]))) : null));
+
+    // level 2: categories of the chosen group
+    let catSec = null;
+    if (q.group && q.group !== '_none') {
+      const g = groupById(q.group);
+      const cRows = catsOfGroup(g.id).map((c) => ({ c, vals: stats.map((x) => x.byCat[c.id] || 0) })).map((r) => ({ ...r, avg: r.vals.reduce((n, v) => n + v, 0) / active }))
+        .sort((a, b) => b.avg - a.avg || heCmp(a.c.name, b.c.name));
+      catSec = h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', { class: 'gcell' }, gIcon(g, 22), g.name), h('span', { class: 'faint' }, 'בחירת קטגוריה מציגה את ההוצאות · אפשר להעביר קטגוריה לקבוצה אחרת')),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'grid qtable' }, head('קטגוריה'), h('tbody', null,
+          cRows.map((r) => h('tr', { class: q.cat === r.c.id ? 'qon' : '' },
+            h('td', { class: 'qcat' },
+              h('button', { class: 'linkbtn', onclick: () => pick({ cat: q.cat === r.c.id ? '' : r.c.id, month: q.cat === r.c.id ? '' : q.month }) }, r.c.name),
+              h('select', { class: 'qgroup', 'aria-label': 'קבוצה של ' + r.c.name, onchange: (e) => {
+                r.c.group = e.target.value; S.save(); toast(`"${r.c.name}" הועברה ל"${groupById(r.c.group).name}"`);
+                if (q.cat === r.c.id) Object.assign(q, { cat: '' }); render();
+              } }, groups().map((x) => h('option', { value: x.id, selected: x.id === g.id }, x.name)))),
+            h('td', { class: 'n' }, r.avg ? h('b', null, nf0.format(r.avg)) : '·'),
+            r.vals.map((v, i) => cell(v, () => pick({ cat: r.c.id, month: months[i] }), q.cat === r.c.id && q.month === months[i])))),
+          cRows.length ? null : h('tr', null, h('td', { colspan: months.length + 2, class: 'faint' }, 'אין קטגוריות בקבוצה'))))));
+    }
+
+    // level 3: transactions of the chosen category (or unclassified)
+    let txSec = null;
+    const txCat = q.group === '_none' ? '_none' : q.cat;
+    if (txCat) {
+      const inCat = (t) => parts(t).some((p) => (txCat === '_none' ? !p.cat : p.cat === txCat));
+      const list = D().txns.filter((t) => (q.month ? monthOf(t) === q.month : months.includes(monthOf(t))) && inCat(t))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const partAmt = (t) => parts(t).filter((p) => (txCat === '_none' ? !p.cat : p.cat === txCat)).reduce((n, p) => n + p.amount, 0);
+      const title = txCat === '_none' ? 'לסיווג' : catById(txCat).name;
+      txSec = h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', null, title, ' · ', list.length, ' הוצאות'), h('span', null, amt(list.reduce((n, t) => n + partAmt(t), 0)))),
+        h('div', { class: 'row', style: 'margin-bottom:8px' },
+          q.month ? h('button', { class: 'pill accent', onclick: () => pick({ month: '' }) }, mLabel(q.month) + ' ✕') : h('span', { class: 'faint' }, `כל ${q.range} החודשים · לחיצה על מספר בטבלה מסננת לחודש`),
+          h('label', { class: 'check', style: 'margin-inline-start:auto' }, h('input', { type: 'checkbox', checked: q.learn, onchange: (e) => { q.learn = e.target.checked; } }), 'לזכור לכל העסקאות מאותו בית עסק')),
+        list.length ? h('div', { class: 'qtx' }, list.map((t) => h('div', { class: 'qtxrow' },
+          h('div', { class: 'qtxm' }, h('div', { class: 'm' }, t.merchant || '(ללא שם)'),
+            h('div', { class: 'faint' }, dShort(t.date), ' · ', cardLabel(t), t.splits && t.splits.length ? ' · מפוצלת' : '')),
+          h('div', { class: 'qtxa' }, amt(partAmt(t), true)),
+          catPicker({ value: t.splits && t.splits.length ? '' : t.cat || '', placeholder: 'לסיווג', ariaLabel: 'קטגוריה ל' + (t.merchant || ''), onChange: (v) => {
+            if (!v) return;
+            const n = setCategory(t, v, q.learn); S.save();
+            toast(`הועבר ל"${catName(v)}"` + (n ? ` · ועוד ${n} עסקאות מאותו בית עסק` : ''));
+            render();
+          } })))) : h('div', { class: 'empty' }, 'אין הוצאות בטווח הזה'));
+    }
+
+    return h('main', { class: 'stack' },
+      h('div', { class: 'row' }, h('h1', { class: 'grow' }, 'עדכון מהיר', h('span', { class: 'faint', style: 'font-size:13px;font-weight:400;margin-inline-start:8px' }, basisLabel())),
+        h('div', { class: 'seg', role: 'group', 'aria-label': 'טווח' }, [3, 6, 12].map((n) => h('button', { 'aria-pressed': q.range === n ? 'true' : 'false', onclick: () => pick({ range: n, month: '' }) }, n + ' ח׳')))),
+      h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', null, 'קבוצות לאורך זמן'), h('span', { class: 'faint' }, 'בחירת קבוצה מציגה את הקטגוריות שלה')),
+        gRows.length || noneVals.some(Boolean) ? h('div', { class: 'tablewrap' }, gTable) : h('div', { class: 'empty' }, 'אין הוצאות בטווח הזה')),
+      catSec, txSec);
+  }
+
   /* ---------------- view: settings ---------------- */
   function viewSettings() {
     const m = ui.month;
@@ -1950,7 +2037,7 @@
     // refresh within the idle window: continue without the password
     if (await S.resume()) {
       let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
-      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest'].includes(v) ? v : 'month');
+      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest', 'quick'].includes(v) ? v : 'month');
     } else lockScreen();
   })();
 })();
