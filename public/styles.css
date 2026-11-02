@@ -139,7 +139,7 @@ label.field { display: block; } label.field > span { display: block; font-size: 
 table.grid { border-collapse: collapse; width: 100%; font-size: 13.5px; }
 table.grid th, table.grid td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: start; white-space: nowrap; }
 table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12.5px; position: sticky; top: 0; background: var(--surface); }
-table.grid td.n { text-align: end; }
+table.grid td.n, table.grid th.n { text-align: end; }
 table.grid tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
 .up { color: var(--over); } .down { color: var(--ok); }
 
@@ -329,10 +329,10 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .qtable td.qsel, .qtable th.qsel { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
 .qtable td:first-child { position: sticky; inset-inline-start: 0; background: var(--surface); z-index: 1; }
 .qtable tr.qon > td:first-child { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
-.qcat { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 150px; }
+.qcat { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 150px; }
 .linkbtn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; text-align: start; }
 .linkbtn:hover { color: var(--accent); }
-.qgroup { font-size: 12px; padding: 3px 6px; max-width: 170px; }
+.qgroup { font-size: 12px; padding: 2px 6px; min-height: 0; height: 28px; width: auto; max-width: 160px; color: var(--ink-2); }
 .qtx { display: flex; flex-direction: column; }
 .qtxrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 10px 2px; border-bottom: 1px solid var(--line); }
 .qtxrow:last-child { border-bottom: 0; }
@@ -341,3 +341,11 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .qtxrow .picker { grid-column: 1 / -1; }
 @media (min-width: 700px) { .qtxrow { grid-template-columns: minmax(0, 1fr) 110px 240px; } .qtxrow .picker { grid-column: auto; } }
 @media (max-width: 420px) { .tabs button { font-size: 12px; padding-inline: 1px; } }
+
+.qtop { flex-wrap: wrap; gap: 8px; }
+.qtop select { width: auto; }
+.qtop select.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.btn.small svg { width: 16px; height: 16px; vertical-align: -3px; margin-inline-end: 4px; }
+.qtable { width: auto; min-width: min(100%, 520px); }
+.qtable td:first-child { min-width: 200px; }
+.qtable td.n, .qtable th.n { min-width: 64px; }
