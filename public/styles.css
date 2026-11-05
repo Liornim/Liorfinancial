@@ -406,3 +406,11 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .pill.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 /* 9 tabs: let the bottom bar scroll sideways on narrow phones instead of squeezing */
 @media (max-width: 759px) { .tabs { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; } .tabs button { flex: 0 0 auto; min-width: 58px; } }
+
+.alsides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 860px) { .alsides { grid-template-columns: 1fr; } }
+.alside .alsum { margin-inline-start: auto; font-size: 17px; }
+.al-me { border-top: 3px solid var(--ok); }
+.al-other { border-top: 3px solid var(--warn); }
+.alrow { grid-template-columns: minmax(0, 1fr) 96px 104px; }
+@media (max-width: 520px) { .alrow { grid-template-columns: minmax(0, 1fr) 76px 96px; } }
