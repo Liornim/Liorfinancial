@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.13'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab
+  const VERSION = '3.14'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -2070,14 +2070,20 @@
   const alSum = (m) => ((AL().months[m] || { items: [] }).items).reduce((n, it) => n + (+it.amount || 0), 0);
   // "2287 שיעורי נהיגה" / "שיעורי נהיגה 2,287" / "₪75.50 בדיקה" -> {desc, amount}
   function parseAlLines(text) {
+    // any dash (-, –, —, −, ‐) next to the number is a separator, never a minus sign: these are expenses
     const ok = [], bad = [];
     for (const raw of text.split(/\r?\n/)) {
-      const line = raw.replace(/\u200f|\u200e/g, '').trim(); if (!line) continue;
-      const m = line.match(/^[₪\s]*(-?\d[\d,]*(?:\.\d+)?)\s*₪?\s*[-–:]?\s*(.*)$/) || line.match(/^(.*?)\s*[-–:]?\s*₪?\s*(-?\d[\d,]*(?:\.\d+)?)\s*₪?$/);
-      if (!m) { bad.push(line); continue; }
-      const numFirst = /^[₪\s]*-?\d/.test(line);
-      const amount = +String(numFirst ? m[1] : m[2]).replace(/,/g, ''); const desc = (numFirst ? m[2] : m[1]).trim();
-      if (!isFinite(amount) || !desc) { bad.push(line); continue; }
+      const line = raw.replace(/[‎‏‪-‮⁦-⁩]/g, '').replace(/[‐-―−﹘﹣－]/g, '-').trim();
+      if (!line) continue;
+      const nums = [...line.matchAll(/\d[\d,]*(?:\.\d+)?/g)];
+      if (!nums.length) { bad.push(line); continue; }
+      // the amount is the number at the start of the line, else the one at the end
+      const edge = (n) => /^[\s₪\-:]*$/.test(line.slice(0, n.index)) || /^[\s₪\-:]*$/.test(line.slice(n.index + n[0].length));
+      const n = nums.find((x) => /^[\s₪\-:]*$/.test(line.slice(0, x.index))) || nums.slice().reverse().find(edge);
+      if (!n) { bad.push(line); continue; }
+      const amount = +n[0].replace(/,/g, '');
+      const desc = (line.slice(0, n.index) + ' ' + line.slice(n.index + n[0].length)).replace(/^[\s₪\-:]+|[\s₪\-:]+$/g, '').replace(/\s{2,}/g, ' ');
+      if (!isFinite(amount) || !amount || !desc) { bad.push(line); continue; }
       ok.push({ desc, amount });
     }
     return { ok, bad };
@@ -2110,11 +2116,11 @@
     };
 
     const openPaste = () => sheet('הדבקת רשימה — ' + mLabel(m), (close) => {
-      const ta = h('textarea', { rows: 10, placeholder: '2287 שיעורי נהיגה\n610 צופים , טיול ותשלום\n200 חוג', 'aria-label': 'רשימה' });
+      const ta = h('textarea', { rows: 10, placeholder: '2287- שיעורי נהיגה\n610-צופים טיול ותשלום\n200-חוג', 'aria-label': 'רשימה' });
       const prev = h('div', { class: 'faint' });
       const upd = () => { const r = parseAlLines(ta.value); prev.replaceChildren(...[r.ok.length ? `${r.ok.length} שורות · סה"כ ${ils(r.ok.reduce((n, x) => n + x.amount, 0), true)}` : '', r.bad.length ? h('div', { class: 'warn' }, 'לא זוהה סכום: ' + r.bad.join(' | ')) : ''].filter(Boolean)); };
       ta.addEventListener('input', upd); setTimeout(() => ta.focus(), 50);
-      return h('div', { class: 'stack' }, h('div', { class: 'faint' }, 'שורה לכל הוצאה: סכום ותיאור, באיזה סדר שנוח.'), ta, prev,
+      return h('div', { class: 'stack' }, h('div', { class: 'faint' }, 'שורה לכל הוצאה: סכום ותיאור, למשל 2287- שיעורי נהיגה. מקף, רווח או נקודתיים — כולם עובדים.'), ta, prev,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
           const r = parseAlLines(ta.value); if (!r.ok.length) return toast('לא נמצאו שורות עם סכום');
           alMonth(m).items.push(...r.ok.map((x) => ({ id: uid(), ...x }))); S.save(); close(); toast(`נוספו ${r.ok.length} הוצאות`);
