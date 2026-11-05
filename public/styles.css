@@ -392,3 +392,17 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .cmptxr .a { grid-column: 2; grid-row: 1 / 3; align-self: center; font-weight: 700; }
 .cmptxr.off { opacity: .6; }
 .cmptxr.off .a { text-decoration: line-through; }
+
+/* alimony */
+.allist { display: flex; flex-direction: column; gap: 6px; }
+.alrow { display: grid; grid-template-columns: minmax(0, 1fr) 96px 76px; gap: 6px; align-items: center; }
+.alact { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+@media (max-width: 520px) { .alrow { grid-template-columns: minmax(0, 1fr) 76px 64px; } .alrow input { padding-inline: 8px; } }
+.alrow .alamt { text-align: end; }
+.aladd { padding-top: 6px; border-top: 1px dashed var(--line); }
+.alpick { display: flex; flex-direction: column; max-height: 50vh; overflow: auto; }
+.alpickrow { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.alpickrow .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+/* 9 tabs: let the bottom bar scroll sideways on narrow phones instead of squeezing */
+@media (max-width: 759px) { .tabs { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; } .tabs button { flex: 0 0 auto; min-width: 58px; } }

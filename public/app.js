@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.12'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report
+  const VERSION = '3.13'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -337,7 +337,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { repTab: 'overview', cmp: { dim: 'group', mode: 'counted', open: new Set(), limit: 40 }, e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { al: { month: '' }, repTab: 'overview', cmp: { dim: 'group', mode: 'counted', open: new Set(), limit: 40 }, e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -360,7 +360,7 @@
   }
 
   function shell(content) {
-    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['quick', 'עדכון', 'layers'], ['edit', 'עריכה', 'edit'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
+    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['quick', 'עדכון', 'layers'], ['edit', 'עריכה', 'edit'], ['alimony', 'מזונות', 'g_family'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
     return h('div', null,
       h('div', { class: 'shell' + (ui.view === 'edit' ? ' wide' : '') },
         h('header', { class: 'topbar' },
@@ -374,7 +374,7 @@
 
   function render() {
     if (!S.data) return;
-    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest, quick: viewQuick, edit: viewEdit };
+    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest, quick: viewQuick, edit: viewEdit, alimony: viewAlimony };
     $app.replaceChildren(shell(views[ui.view]()));
   }
 
@@ -2062,6 +2062,128 @@
       list.length > shown.length ? h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { e.limit += 300; keepScroll(); } }, `עוד ${Math.min(300, list.length - shown.length)} (מוצגות ${shown.length} מתוך ${list.length})`)) : null);
   }
 
+  /* ---------------- view: alimony offset ----------------
+     expenses for the kids (and the dog) paid in month X are offset against the alimony of month X+1.
+     items are free text + amount, typed, pasted as a list, or picked from the month's transactions. */
+  const AL = () => D().alimony;
+  const alMonth = (m) => (AL().months[m] = AL().months[m] || { items: [], done: false, note: '' });
+  const alSum = (m) => ((AL().months[m] || { items: [] }).items).reduce((n, it) => n + (+it.amount || 0), 0);
+  // "2287 שיעורי נהיגה" / "שיעורי נהיגה 2,287" / "₪75.50 בדיקה" -> {desc, amount}
+  function parseAlLines(text) {
+    const ok = [], bad = [];
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.replace(/\u200f|\u200e/g, '').trim(); if (!line) continue;
+      const m = line.match(/^[₪\s]*(-?\d[\d,]*(?:\.\d+)?)\s*₪?\s*[-–:]?\s*(.*)$/) || line.match(/^(.*?)\s*[-–:]?\s*₪?\s*(-?\d[\d,]*(?:\.\d+)?)\s*₪?$/);
+      if (!m) { bad.push(line); continue; }
+      const numFirst = /^[₪\s]*-?\d/.test(line);
+      const amount = +String(numFirst ? m[1] : m[2]).replace(/,/g, ''); const desc = (numFirst ? m[2] : m[1]).trim();
+      if (!isFinite(amount) || !desc) { bad.push(line); continue; }
+      ok.push({ desc, amount });
+    }
+    return { ok, bad };
+  }
+  function viewAlimony() {
+    const st = AL().settings;
+    const last = allMonths().slice(-1)[0] || thisMonth();
+    if (!ui.al.month) { const ms = Object.keys(AL().months).filter((k) => AL().months[k].items.length).sort(); ui.al.month = ms.slice(-1)[0] || addMonths(thisMonth(), -1); }
+    const m = ui.al.month; const rec = AL().months[m] || { items: [], done: false, note: '' };
+    const total = alSum(m); const offset = Math.round(total * (st.share / 100) * 100) / 100;
+    const keep = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const save = () => { S.save(); keep(); };
+
+    const itemRow = (it) => h('div', { class: 'alrow' },
+      h('input', { type: 'text', value: it.desc, 'aria-label': 'תיאור', onchange: (e) => { it.desc = e.target.value.trim() || it.desc; save(); } }),
+      h('input', { type: 'number', inputmode: 'decimal', step: 'any', value: it.amount, 'aria-label': 'סכום', class: 'alamt', onchange: (e) => { it.amount = +e.target.value || 0; save(); } }),
+      h('div', { class: 'alact' }, it.txnId ? h('span', { class: 'pill', title: 'מקושר לעסקה' }, '🔗') : null,
+        h('button', { class: 'icon-btn', 'aria-label': 'מחיקה', onclick: () => { const r = alMonth(m); r.items = r.items.filter((x) => x !== it); save(); } }, icon('trash'))));
+
+    const addRow = () => {
+      const desc = h('input', { type: 'text', placeholder: 'תיאור', 'aria-label': 'תיאור חדש' });
+      const amount = h('input', { type: 'number', inputmode: 'decimal', step: 'any', placeholder: '₪', 'aria-label': 'סכום חדש', class: 'alamt' });
+      const add = () => {
+        if (!desc.value.trim() || !+amount.value) return toast('צריך תיאור וסכום');
+        alMonth(m).items.push({ id: uid(), desc: desc.value.trim(), amount: +amount.value }); S.save(); keep();
+        const d = document.querySelector('input[aria-label="תיאור חדש"]'); if (d) d.focus();
+      };
+      [desc, amount].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); }));
+      return h('div', { class: 'alrow aladd' }, desc, amount, h('div', { class: 'alact' }, h('button', { class: 'btn small primary', onclick: add }, 'הוספה')));
+    };
+
+    const openPaste = () => sheet('הדבקת רשימה — ' + mLabel(m), (close) => {
+      const ta = h('textarea', { rows: 10, placeholder: '2287 שיעורי נהיגה\n610 צופים , טיול ותשלום\n200 חוג', 'aria-label': 'רשימה' });
+      const prev = h('div', { class: 'faint' });
+      const upd = () => { const r = parseAlLines(ta.value); prev.replaceChildren(...[r.ok.length ? `${r.ok.length} שורות · סה"כ ${ils(r.ok.reduce((n, x) => n + x.amount, 0), true)}` : '', r.bad.length ? h('div', { class: 'warn' }, 'לא זוהה סכום: ' + r.bad.join(' | ')) : ''].filter(Boolean)); };
+      ta.addEventListener('input', upd); setTimeout(() => ta.focus(), 50);
+      return h('div', { class: 'stack' }, h('div', { class: 'faint' }, 'שורה לכל הוצאה: סכום ותיאור, באיזה סדר שנוח.'), ta, prev,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+          const r = parseAlLines(ta.value); if (!r.ok.length) return toast('לא נמצאו שורות עם סכום');
+          alMonth(m).items.push(...r.ok.map((x) => ({ id: uid(), ...x }))); S.save(); close(); toast(`נוספו ${r.ok.length} הוצאות`);
+        } }, 'הוספה'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
+    }, () => render());
+
+    const openPick = () => sheet('בחירה מהעסקאות — ' + mLabel(m), (close) => {
+      const linked = new Set(rec.items.map((it) => it.txnId).filter(Boolean));
+      const pool = D().txns.filter((t) => (t.date || '').slice(0, 7) === m && t.amount != null && t.dir !== 'in').sort((a, b) => b.amount - a.amount);
+      const chosen = new Set(); let q = '';
+      const list = h('div', { class: 'alpick' });
+      const draw = () => list.replaceChildren(...pool.filter((t) => !q || (t.merchant || '').toLowerCase().includes(q) || catName(t.cat).toLowerCase().includes(q)).map((t) => h('label', { class: 'alpickrow' + (linked.has(t.id) ? ' faint' : '') },
+        h('input', { type: 'checkbox', disabled: linked.has(t.id), checked: linked.has(t.id) || chosen.has(t.id), onchange: (e) => { if (e.target.checked) chosen.add(t.id); else chosen.delete(t.id); } }),
+        h('span', { class: 'm' }, t.merchant || '(ללא שם)', h('span', { class: 'faint' }, ' · ' + dShort(t.date) + ' · ' + catName(t.cat))), h('b', null, ils(t.amount, true)))));
+      draw();
+      return h('div', { class: 'stack' },
+        h('div', { class: 'faint' }, `עסקאות שבוצעו ב${mLabel(m)} (לפי תאריך העסקה). מה שכבר ברשימה מסומן באפור.`),
+        h('input', { type: 'search', placeholder: 'חיפוש בית עסק או קטגוריה', oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+        list,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+          const add = pool.filter((t) => chosen.has(t.id)); if (!add.length) return close();
+          alMonth(m).items.push(...add.map((t) => ({ id: uid(), desc: t.merchant || 'עסקה', amount: t.amount, txnId: t.id }))); S.save(); close(); toast(`נוספו ${add.length} הוצאות`);
+        } }, 'הוספת המסומנות'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
+    }, () => render());
+
+    const hist = Object.keys(AL().months).filter((k) => AL().months[k].items.length).sort().reverse();
+    const doExport = () => {
+      const sheets = [{ name: 'סיכום', rows: [['חודש ההוצאות', 'מקוזז בחודש', 'סה"כ הוצאות', `לקיזוז (${st.share}%)`, ...(st.monthly ? ['מזונות', 'לתשלום אחרי קיזוז'] : []), 'קוזז'],
+        ...hist.map((k) => { const t = alSum(k); const o = r2x(t * st.share / 100); return [mLabel(k), mLabel(addMonths(k, 1)), r2x(t), o, ...(st.monthly ? [st.monthly, r2x(st.monthly - o)] : []), AL().months[k].done ? 'כן' : 'לא']; })] }];
+      for (const k of hist) sheets.push({ name: k, rows: [['תיאור', 'סכום'], ...AL().months[k].items.map((it) => [it.desc, r2x(it.amount)]), ['סה"כ', r2x(alSum(k))]] });
+      exportXlsx('kupa-alimony', sheets);
+    };
+
+    return h('main', { class: 'stack' },
+      h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'קיזוז מזונות'), xlBtn(doExport)),
+      h('section', { class: 'card stack' },
+        h('div', { class: 'row', style: 'flex-wrap:wrap' },
+          h('div', { class: 'monthnav' },
+            h('button', { class: 'icon-btn', 'aria-label': 'חודש קודם', onclick: () => { ui.al.month = addMonths(m, -1); render(); } }, icon('prev')),
+            h('h2', null, 'הוצאות ' + mLabel(m)),
+            h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.al.month = addMonths(m, 1); render(); } }, icon('next'))),
+          h('span', { class: 'pill accent' }, 'מקוזז ב' + mLabel(addMonths(m, 1)))),
+        h('div', { class: 'kpis' },
+          kpi('סה"כ הוצאות', amt(total, true)),
+          kpi(st.share === 100 ? 'לקיזוז' : `לקיזוז (${st.share}%)`, amt(offset, true)),
+          st.monthly ? kpi('מזונות ' + mLabel(addMonths(m, 1)), amt(st.monthly)) : null,
+          st.monthly ? kpi('לתשלום אחרי קיזוז', amt(st.monthly - offset, true), st.monthly - offset < 0 ? 'over' : '') : null),
+        h('div', { class: 'allist' }, rec.items.map(itemRow), addRow()),
+        h('div', { class: 'row', style: 'flex-wrap:wrap' },
+          h('button', { class: 'btn small', onclick: openPaste }, 'הדבקת רשימה'),
+          h('button', { class: 'btn small', onclick: openPick }, 'בחירה מהעסקאות'),
+          h('label', { class: 'check', style: 'margin-inline-start:auto' }, h('input', { type: 'checkbox', checked: !!rec.done, onchange: (e) => { alMonth(m).done = e.target.checked; save(); } }), 'קוזז')),
+        h('label', { class: 'field' }, h('span', null, 'הערה'), h('input', { type: 'text', value: rec.note || '', placeholder: '—', onchange: (e) => { alMonth(m).note = e.target.value.trim(); S.save(); } }))),
+      hist.length ? h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', null, 'היסטוריה')),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
+          h('thead', null, h('tr', null, h('th', null, 'הוצאות של'), h('th', null, 'מקוזז ב'), h('th', { class: 'n' }, 'פריטים'), h('th', { class: 'n' }, 'סה"כ'), h('th', { class: 'n' }, 'לקיזוז'), h('th', null, 'סטטוס'))),
+          h('tbody', null, hist.map((k) => { const t = alSum(k); return h('tr', { class: k === m ? 'qon' : '' },
+            h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => { ui.al.month = k; render(); window.scrollTo(0, 0); } }, mLabel(k)), h('td', null, mLabel(addMonths(k, 1))),
+            h('td', { class: 'n' }, AL().months[k].items.length), h('td', { class: 'n' }, nf0.format(t)), h('td', { class: 'n' }, h('b', null, nf0.format(t * st.share / 100))),
+            h('td', null, AL().months[k].done ? h('span', { class: 'pill ok' }, 'קוזז ✓') : h('span', { class: 'pill warn' }, 'פתוח'))); }))))) : null,
+      h('section', { class: 'card' },
+        h('div', { class: 'section-title' }, h('h2', null, 'הגדרות קיזוז')),
+        h('div', { class: 'fields' },
+          h('label', { class: 'field' }, h('span', null, 'איזה חלק מההוצאות מקוזז (%)'), h('input', { type: 'number', min: '0', max: '100', step: '1', value: st.share, onchange: (e) => { st.share = Math.min(100, Math.max(0, +e.target.value || 0)); save(); } })),
+          h('label', { class: 'field' }, h('span', null, 'סכום מזונות חודשי (לא חובה)'), h('input', { type: 'number', min: '0', step: '1', value: st.monthly || '', placeholder: '0', onchange: (e) => { st.monthly = Math.max(0, +e.target.value || 0); save(); } }))),
+        h('div', { class: 'faint', style: 'margin-top:6px' }, '100% = כל ההוצאה מקוזזת. 50% = רק מחצית (אם ההוצאות מתחלקות בין ההורים). אם תמלא סכום מזונות, יוצג כמה נשאר לתשלום אחרי הקיזוז.')));
+  }
+
   /* ---------------- view: settings ---------------- */
   function viewSettings() {
     const m = ui.month;
@@ -2295,6 +2417,7 @@
     (d.rules || []).forEach((r) => { if (r.min === undefined) r.min = ''; if (r.max === undefined) r.max = ''; });
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
     d.invest = d.invest || { txns: [], prices: {}, settings: { fee: 8, cgt: 0.25 } };
+    d.alimony = d.alimony || { settings: { share: 100, monthly: 0 }, months: {} };
     d.invest.prices = d.invest.prices || {}; d.invest.settings = Object.assign({ fee: 8, cgt: 0.25 }, d.invest.settings || {});
     if (!d.groups || !d.groups.length) { // 3.7: category groups
       d.groups = DEFAULT_GROUPS.slice().sort((x, y) => x[3] - y[3]).map(([key, name, ic, ci]) => ({ id: uid(), key, name, icon: ic, color: GROUP_COLORS[ci] })); // shown in this order
@@ -2326,7 +2449,7 @@
     // refresh within the idle window: continue without the password
     if (await S.resume()) {
       let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
-      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest', 'quick', 'edit'].includes(v) ? v : 'month');
+      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest', 'quick', 'edit', 'alimony'].includes(v) ? v : 'month');
     } else lockScreen();
   })();
 })();
