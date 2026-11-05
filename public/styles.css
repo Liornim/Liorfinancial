@@ -414,3 +414,14 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .al-other { border-top: 3px solid var(--warn); }
 .alrow { grid-template-columns: minmax(0, 1fr) 96px 104px; }
 @media (max-width: 520px) { .alrow { grid-template-columns: minmax(0, 1fr) 76px 96px; } }
+
+/* alimony lines with percent: description on top, amount · percent · offset · actions below */
+.alrow { display: grid; grid-template-columns: 96px 78px minmax(0, 1fr) auto; grid-template-areas: 'd d d d' 'a p o x'; gap: 4px 6px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.alrow .aldesc { grid-area: d; } .alrow .alamt { grid-area: a; } .alrow .alpct { grid-area: p; } .alrow .aloff { grid-area: o; } .alrow .alact { grid-area: x; }
+.alhead { display: none; }
+.alpct { display: flex; align-items: center; gap: 2px; }
+.alpct input { min-width: 0; text-align: end; padding-inline: 6px; }
+.alpct span { color: var(--ink-3); font-size: 13px; }
+.aloff { font-weight: 700; font-size: 14px; white-space: nowrap; }
+.alsum { margin-inline-start: auto; font-size: 16px; }
+.aladd { border-bottom: 0; }

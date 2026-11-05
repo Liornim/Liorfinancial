@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.15'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset
+  const VERSION = '3.16'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -2069,8 +2069,13 @@
   const alMonth = (m) => (AL().months[m] = AL().months[m] || { items: [], done: false, note: '' });
   // side: 'me' = I paid it (offset in my favour), 'other' = the other side paid it (offset against me)
   const sideOf = (it) => (it.side === 'other' ? 'other' : 'me');
-  const alSum = (m, side) => ((AL().months[m] || { items: [] }).items).filter((it) => sideOf(it) === side).reduce((n, it) => n + (+it.amount || 0), 0);
-  const alNet = (m) => { const sh = AL().settings.share / 100; return Math.round((alSum(m, 'me') - alSum(m, 'other')) * sh * 100) / 100; };
+  // each line has its own percent (older lines without one use the default from the settings)
+  const pctOf = (it) => (it.pct != null && it.pct !== '' ? +it.pct : +AL().settings.share);
+  const offOf = (it) => Math.round((+it.amount || 0) * pctOf(it)) / 100;
+  const alItems = (m, side) => ((AL().months[m] || { items: [] }).items).filter((it) => sideOf(it) === side);
+  const alSum = (m, side) => alItems(m, side).reduce((n, it) => n + (+it.amount || 0), 0);
+  const alOff = (m, side) => alItems(m, side).reduce((n, it) => n + offOf(it), 0);
+  const alNet = (m) => Math.round((alOff(m, 'me') - alOff(m, 'other')) * 100) / 100;
   // "450- ספרים" / "ביגוד: 300" / "תרופות 80 שח" -> {desc, amount}
   function parseAlLines(text) {
     // any dash (-, –, —, −, ‐) next to the number is a separator, never a minus sign: these are expenses
@@ -2079,6 +2084,7 @@
     for (const raw of text.split(/\r?\n/)) {
       let line = raw.replace(/[‎‏‪-‮⁦-⁩]/g, '').replace(/[‐-―−﹘﹣－]/g, '-').trim();
       line = line.replace(/(\d)\s*(?:ש["״׳']?ח|שקלים|שקל|NIS|ILS)(?=\s|$|[-:,.])/gi, '$1'); // "200 שח" -> "200"
+      let pct = null; line = line.replace(/(\d+(?:\.\d+)?)\s*%/, (_, v) => { pct = Math.min(100, Math.max(0, +v)); return ' '; }).trim(); // "460 קניות 50%"
       if (!line) continue;
       const nums = [...line.matchAll(/\d[\d,]*(?:\.\d+)?/g)];
       if (!nums.length) { bad.push(line); continue; }
@@ -2088,7 +2094,7 @@
       const amount = +n[0].replace(/,/g, '');
       const desc = (line.slice(0, n.index) + ' ' + line.slice(n.index + n[0].length)).replace(/^[\s₪\-:]+|[\s₪\-:]+$/g, '').replace(/\s{2,}/g, ' ');
       if (!isFinite(amount) || !amount || !desc) { bad.push(line); continue; }
-      ok.push({ desc, amount });
+      ok.push(pct == null ? { desc, amount } : { desc, amount, pct });
     }
     return { ok, bad };
   }
@@ -2096,14 +2102,16 @@
     const st = AL().settings;
     if (!ui.al.month) { const ms = Object.keys(AL().months).filter((k) => AL().months[k].items.length).sort(); ui.al.month = ms.slice(-1)[0] || addMonths(thisMonth(), -1); }
     const m = ui.al.month; const rec = AL().months[m] || { items: [], done: false, note: '' };
-    const mine = alSum(m, 'me'), theirs = alSum(m, 'other'), net = alNet(m);
+    const mine = alSum(m, 'me'), theirs = alSum(m, 'other'), offMe = alOff(m, 'me'), offOther = alOff(m, 'other'), net = alNet(m);
     const keep = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
     const save = () => { S.save(); keep(); };
     const SIDES = { me: { title: 'הוצאות ששילמתי', sub: 'מקוזזות לטובתי', short: 'שלי' }, other: { title: 'הוצאות שהצד השני שילם', sub: 'מקוזזות לטובת הצד השני', short: 'של הצד השני' } };
 
     const itemRow = (it) => h('div', { class: 'alrow' },
-      h('input', { type: 'text', value: it.desc, 'aria-label': 'תיאור', onchange: (e) => { it.desc = e.target.value.trim() || it.desc; save(); } }),
+      h('input', { type: 'text', class: 'aldesc', value: it.desc, 'aria-label': 'תיאור', onchange: (e) => { it.desc = e.target.value.trim() || it.desc; save(); } }),
       h('input', { type: 'number', inputmode: 'decimal', step: 'any', value: it.amount, 'aria-label': 'סכום', class: 'alamt', onchange: (e) => { it.amount = +e.target.value || 0; save(); } }),
+      h('label', { class: 'alpct', title: 'איזה אחוז מהסכום מקוזז' }, h('input', { type: 'number', inputmode: 'decimal', min: '0', max: '100', step: 'any', value: pctOf(it), 'aria-label': 'אחוז לקיזוז', onchange: (e) => { it.pct = Math.min(100, Math.max(0, +e.target.value || 0)); save(); } }), h('span', null, '%')),
+      h('span', { class: 'aloff' + (pctOf(it) === 100 ? ' faint' : ''), title: 'לקיזוז' }, '= ', ils(offOf(it), true)),
       h('div', { class: 'alact' }, it.txnId ? h('span', { class: 'pill', title: 'מקושר לעסקה' }, '🔗') : null,
         h('button', { class: 'icon-btn', 'aria-label': 'העברה לצד השני', title: sideOf(it) === 'me' ? 'העברה ל"הצד השני שילם"' : 'העברה ל"שילמתי"', onclick: () => { it.side = sideOf(it) === 'me' ? 'other' : 'me'; save(); } }, '⇅'),
         h('button', { class: 'icon-btn', 'aria-label': 'מחיקה', onclick: () => { const r = alMonth(m); r.items = r.items.filter((x) => x !== it); save(); } }, icon('trash'))));
@@ -2111,13 +2119,15 @@
     const addRow = (side) => {
       const desc = h('input', { type: 'text', placeholder: 'תיאור', 'aria-label': 'תיאור חדש ' + side });
       const amount = h('input', { type: 'number', inputmode: 'decimal', step: 'any', placeholder: '₪', 'aria-label': 'סכום חדש ' + side, class: 'alamt' });
+      const pct = h('input', { type: 'number', inputmode: 'decimal', min: '0', max: '100', step: 'any', value: st.share, 'aria-label': 'אחוז חדש ' + side });
       const add = () => {
         if (!desc.value.trim() || !+amount.value) return toast('צריך תיאור וסכום');
-        alMonth(m).items.push({ id: uid(), side, desc: desc.value.trim(), amount: +amount.value }); S.save(); keep();
+        alMonth(m).items.push({ id: uid(), side, desc: desc.value.trim(), amount: +amount.value, pct: pct.value === '' ? +st.share : Math.min(100, Math.max(0, +pct.value)) }); S.save(); keep();
         const d = document.querySelector(`input[aria-label="תיאור חדש ${side}"]`); if (d) d.focus();
       };
-      [desc, amount].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); }));
-      return h('div', { class: 'alrow aladd' }, desc, amount, h('div', { class: 'alact' }, h('button', { class: 'btn small primary', onclick: add }, 'הוספה')));
+      [desc, amount, pct].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); }));
+      desc.classList.add('aldesc');
+      return h('div', { class: 'alrow aladd' }, desc, amount, h('label', { class: 'alpct' }, pct, h('span', null, '%')), h('span', { class: 'aloff' }), h('div', { class: 'alact' }, h('button', { class: 'btn small primary', onclick: add }, 'הוספה')));
     };
 
     const openPaste = (side0) => sheet('הדבקת רשימה — ' + mLabel(m), (close) => {
@@ -2129,10 +2139,10 @@
       drawSeg();
       const upd = () => { const r = parseAlLines(ta.value); prev.replaceChildren(...[r.ok.length ? `${r.ok.length} שורות · סה"כ ${ils(r.ok.reduce((n, x) => n + x.amount, 0), true)}` : '', r.bad.length ? h('div', { class: 'warn' }, 'לא זוהה סכום: ' + r.bad.join(' | ')) : ''].filter(Boolean)); };
       ta.addEventListener('input', upd); setTimeout(() => ta.focus(), 50);
-      return h('div', { class: 'stack' }, seg, h('div', { class: 'faint' }, 'שורה לכל הוצאה: סכום ותיאור בכל סדר. מקף, רווח, נקודתיים ו"שח" — כולם עובדים.'), ta, prev,
+      return h('div', { class: 'stack' }, seg, h('div', { class: 'faint' }, `שורה לכל הוצאה: סכום ותיאור בכל סדר. מקף, רווח, נקודתיים ו"שח" — כולם עובדים. אחוז: אפשר לכתוב בשורה (למשל 50%), אחרת ${st.share}%.`), ta, prev,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
           const r = parseAlLines(ta.value); if (!r.ok.length) return toast('לא נמצאו שורות עם סכום');
-          alMonth(m).items.push(...r.ok.map((x) => ({ id: uid(), side, ...x }))); S.save(); close(); toast(`נוספו ${r.ok.length} הוצאות (${SIDES[side].short})`);
+          alMonth(m).items.push(...r.ok.map((x) => ({ id: uid(), side, pct: +st.share, ...x }))); S.save(); close(); toast(`נוספו ${r.ok.length} הוצאות (${SIDES[side].short})`);
         } }, 'הוספה'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
     }, () => render());
 
@@ -2151,16 +2161,22 @@
         list,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
           const add = pool.filter((t) => chosen.has(t.id)); if (!add.length) return close();
-          alMonth(m).items.push(...add.map((t) => ({ id: uid(), side: 'me', desc: t.merchant || 'עסקה', amount: t.amount, txnId: t.id }))); S.save(); close(); toast(`נוספו ${add.length} הוצאות`);
+          alMonth(m).items.push(...add.map((t) => ({ id: uid(), side: 'me', desc: t.merchant || 'עסקה', amount: t.amount, pct: +st.share, txnId: t.id }))); S.save(); close(); toast(`נוספו ${add.length} הוצאות`);
         } }, 'הוספת המסומנות'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
     }, () => render());
 
     const sideCard = (side) => {
-      const items = rec.items.filter((it) => sideOf(it) === side); const sum = side === 'me' ? mine : theirs;
+      const items = rec.items.filter((it) => sideOf(it) === side); const sum = side === 'me' ? mine : theirs; const off = side === 'me' ? offMe : offOther;
+      const setAll = (v) => { items.forEach((it) => { it.pct = v; }); save(); };
       return h('section', { class: 'card stack alside al-' + side },
-        h('div', { class: 'section-title' }, h('h2', null, SIDES[side].title), h('span', { class: 'faint' }, SIDES[side].sub), h('b', { class: 'alsum' }, amt(sum, true))),
+        h('div', { class: 'section-title' }, h('h2', null, SIDES[side].title), h('span', { class: 'faint' }, SIDES[side].sub),
+          h('span', { class: 'alsum' }, h('b', null, amt(off, true)), Math.abs(off - sum) > 0.004 ? h('span', { class: 'faint' }, ' לקיזוז מתוך ', amt(sum, true)) : h('span', { class: 'faint' }, ' לקיזוז'))),
+        items.length ? h('div', { class: 'alhead faint' }, h('span', { class: 'aldesc' }, 'תיאור'), h('span', null, 'סכום'), h('span', null, 'אחוז'), h('span', null, 'לקיזוז'), h('span')) : null,
         h('div', { class: 'allist' }, items.map(itemRow), addRow(side)),
         h('div', { class: 'row', style: 'flex-wrap:wrap' },
+          items.length ? h('span', { class: 'faint' }, 'כל השורות:') : null,
+          items.length ? h('button', { class: 'btn small', onclick: () => setAll(100) }, '100%') : null,
+          items.length ? h('button', { class: 'btn small', onclick: () => setAll(50) }, '50%') : null,
           h('button', { class: 'btn small', onclick: () => openPaste(side) }, 'הדבקת רשימה'),
           side === 'me' ? h('button', { class: 'btn small', onclick: openPick }, 'בחירה מהעסקאות') : null));
     };
@@ -2168,9 +2184,9 @@
     const hist = Object.keys(AL().months).filter((k) => AL().months[k].items.length).sort().reverse();
     const netLabel = (n) => (n > 0 ? 'לטובתי' : n < 0 ? 'לטובת הצד השני' : 'מאוזן');
     const doExport = () => {
-      const sheets = [{ name: 'סיכום', rows: [['חודש ההוצאות', 'מקוזז בחודש', 'שילמתי', 'הצד השני שילם', `קיזוז נטו (${st.share}%)`, 'לטובת', ...(st.monthly ? ['מזונות', 'לתשלום אחרי קיזוז'] : []), 'קוזז'],
-        ...hist.map((k) => { const n = alNet(k); return [mLabel(k), mLabel(addMonths(k, 1)), r2x(alSum(k, 'me')), r2x(alSum(k, 'other')), n, netLabel(n), ...(st.monthly ? [st.monthly, r2x(st.monthly - n)] : []), AL().months[k].done ? 'כן' : 'לא']; })] }];
-      for (const k of hist) sheets.push({ name: k, rows: [['מי שילם', 'תיאור', 'סכום'], ...AL().months[k].items.map((it) => [sideOf(it) === 'me' ? 'אני' : 'הצד השני', it.desc, r2x(it.amount)]), ['', 'שילמתי', r2x(alSum(k, 'me'))], ['', 'הצד השני שילם', r2x(alSum(k, 'other'))], ['', 'קיזוז נטו', alNet(k)]] });
+      const sheets = [{ name: 'סיכום', rows: [['חודש ההוצאות', 'מקוזז בחודש', 'שילמתי', 'שלי לקיזוז', 'הצד השני שילם', 'שלו לקיזוז', 'קיזוז נטו', 'לטובת', ...(st.monthly ? ['מזונות', 'לתשלום אחרי קיזוז'] : []), 'קוזז'],
+        ...hist.map((k) => { const n = alNet(k); return [mLabel(k), mLabel(addMonths(k, 1)), r2x(alSum(k, 'me')), r2x(alOff(k, 'me')), r2x(alSum(k, 'other')), r2x(alOff(k, 'other')), n, netLabel(n), ...(st.monthly ? [st.monthly, r2x(st.monthly - n)] : []), AL().months[k].done ? 'כן' : 'לא']; })] }];
+      for (const k of hist) sheets.push({ name: k, rows: [['מי שילם', 'תיאור', 'סכום', 'אחוז', 'לקיזוז'], ...AL().months[k].items.map((it) => [sideOf(it) === 'me' ? 'אני' : 'הצד השני', it.desc, r2x(it.amount), pctOf(it), offOf(it)]), ['', 'שילמתי', r2x(alSum(k, 'me')), '', r2x(alOff(k, 'me'))], ['', 'הצד השני שילם', r2x(alSum(k, 'other')), '', r2x(alOff(k, 'other'))], ['', 'קיזוז נטו', '', '', alNet(k)]] });
       exportXlsx('kupa-alimony', sheets);
     };
 
@@ -2184,11 +2200,11 @@
             h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.al.month = addMonths(m, 1); render(); } }, icon('next'))),
           h('span', { class: 'pill accent' }, 'מקוזז ב' + mLabel(addMonths(m, 1)))),
         h('div', { class: 'kpis' },
-          kpi('שילמתי', amt(mine, true)),
-          kpi('הצד השני שילם', amt(theirs, true)),
-          kpi((st.share === 100 ? 'קיזוז נטו' : `קיזוז נטו (${st.share}%)`) + ' · ' + netLabel(net), amt(Math.abs(net), true), net < 0 ? 'over' : ''),
+          kpi('שילמתי · לקיזוז', amt(offMe, true)),
+          kpi('הצד השני · לקיזוז', amt(offOther, true)),
+          kpi('קיזוז נטו · ' + netLabel(net), amt(Math.abs(net), true), net < 0 ? 'over' : ''),
           st.monthly ? kpi('לתשלום ב' + mLabel(addMonths(m, 1)), amt(st.monthly - net, true)) : null),
-        h('div', { class: 'faint' }, `קיזוז נטו = (שילמתי − הצד השני שילם)${st.share === 100 ? '' : ` × ${st.share}%`}` + (st.monthly ? ` · לתשלום = מזונות ${ils(st.monthly)} − קיזוז נטו` : '')),
+        h('div', { class: 'faint' }, 'לכל שורה: לקיזוז = סכום × אחוז. קיזוז נטו = מה שלי לקיזוז − מה של הצד השני לקיזוז' + (st.monthly ? ` · לתשלום = מזונות ${ils(st.monthly)} − קיזוז נטו` : '')),
         h('div', { class: 'row', style: 'flex-wrap:wrap' },
           h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!rec.done, onchange: (e) => { alMonth(m).done = e.target.checked; save(); } }), 'קוזז'),
           h('label', { class: 'field grow', style: 'margin:0' }, h('input', { type: 'text', value: rec.note || '', placeholder: 'הערה', 'aria-label': 'הערה', onchange: (e) => { alMonth(m).note = e.target.value.trim(); S.save(); } })))),
@@ -2196,18 +2212,18 @@
       hist.length ? h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'היסטוריה')),
         h('div', { class: 'tablewrap' }, h('table', { class: 'grid' },
-          h('thead', null, h('tr', null, h('th', null, 'הוצאות של'), h('th', null, 'מקוזז ב'), h('th', { class: 'n' }, 'שילמתי'), h('th', { class: 'n' }, 'הצד השני'), h('th', { class: 'n' }, 'נטו'), h('th', null, 'סטטוס'))),
+          h('thead', null, h('tr', null, h('th', null, 'הוצאות של'), h('th', null, 'מקוזז ב'), h('th', { class: 'n' }, 'שלי לקיזוז'), h('th', { class: 'n' }, 'שלו לקיזוז'), h('th', { class: 'n' }, 'נטו'), h('th', null, 'סטטוס'))),
           h('tbody', null, hist.map((k) => { const n = alNet(k); return h('tr', { class: k === m ? 'qon' : '' },
             h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => { ui.al.month = k; render(); window.scrollTo(0, 0); } }, mLabel(k)), h('td', null, mLabel(addMonths(k, 1))),
-            h('td', { class: 'n' }, nf0.format(alSum(k, 'me'))), h('td', { class: 'n' }, nf0.format(alSum(k, 'other'))),
+            h('td', { class: 'n' }, nf0.format(alOff(k, 'me'))), h('td', { class: 'n' }, nf0.format(alOff(k, 'other'))),
             h('td', { class: 'n ' + (n < 0 ? 'up' : '') }, h('b', null, (n < 0 ? '−' : '') + nf0.format(Math.abs(n)))),
             h('td', null, AL().months[k].done ? h('span', { class: 'pill ok' }, 'קוזז ✓') : h('span', { class: 'pill warn' }, 'פתוח'))); }))))) : null,
       h('section', { class: 'card' },
         h('div', { class: 'section-title' }, h('h2', null, 'הגדרות קיזוז')),
         h('div', { class: 'fields' },
-          h('label', { class: 'field' }, h('span', null, 'איזה חלק מההוצאות מקוזז (%)'), h('input', { type: 'number', min: '0', max: '100', step: '1', value: st.share, onchange: (e) => { st.share = Math.min(100, Math.max(0, +e.target.value || 0)); save(); } })),
+          h('label', { class: 'field' }, h('span', null, 'אחוז ברירת מחדל לשורה חדשה'), h('input', { type: 'number', min: '0', max: '100', step: '1', value: st.share, onchange: (e) => { st.share = Math.min(100, Math.max(0, +e.target.value || 0)); save(); } })),
           h('label', { class: 'field' }, h('span', null, 'סכום מזונות חודשי (לא חובה)'), h('input', { type: 'number', min: '0', step: '1', value: st.monthly || '', placeholder: '0', onchange: (e) => { st.monthly = Math.max(0, +e.target.value || 0); save(); } }))),
-        h('div', { class: 'faint', style: 'margin-top:6px' }, 'האחוז חל על שני הצדדים. 100% = כל ההוצאה מקוזזת; 50% = רק מחצית. אם תמלא סכום מזונות, יוצג כמה לשלם אחרי הקיזוז.')));
+        h('div', { class: 'faint', style: 'margin-top:6px' }, 'לכל שורה יש אחוז משלה (משנים ליד השורה). כאן רק קובעים מה ייכנס אוטומטית לשורות חדשות. אם תמלא סכום מזונות, יוצג כמה לשלם אחרי הקיזוז.')));
   }
 
   /* ---------------- view: settings ---------------- */
