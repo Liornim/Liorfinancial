@@ -438,3 +438,11 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .pbyprow { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .pbyprow:last-child { border-bottom: 0; }
 .pbyprow .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pbyask { border: 1px solid var(--accent); }
+.pbyask input { width: auto; min-width: 140px; flex: 1; }
+.pbychip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); overflow: hidden; }
+.pbychip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.pbychip button { border: 0; background: none; font: inherit; cursor: pointer; padding: 5px 10px; color: var(--ink); }
+.pbychip .pbychipname { font-weight: 600; }
+.pbychip .pbychipedit { padding-inline: 8px; color: var(--ink-3); border-inline-start: 1px solid var(--line); }

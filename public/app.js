@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.18'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line · 3.17 PayBox Young tab · 3.18 PayBox paste
+  const VERSION = '3.19'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line · 3.17 PayBox Young tab · 3.18 PayBox paste · 3.19 PayBox card names
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -2257,6 +2257,17 @@
   const pbyMsg = (r) => [r.added ? `נוספו ${r.added} עסקאות` : 'לא נוספו עסקאות חדשות', r.dup ? `${r.dup} כבר היו` : '', r.upd ? `${r.upd} עודכנו מ"בקליטה"` : '',
     r.noAmount ? `${r.noAmount} שורות בלי סכום דולגו (בקובץ "פירוט עסקאות וזיכויים" של PayBox הסכום הוא 0 — צריך את קובץ החיוב החודשי מכאל, עם עמודת "סכום עסקה")` : ''].filter(Boolean).join(' · ');
   const pbyName = (card) => (PB().names[card] || '').trim();
+  const pbyRelabel = (card) => { for (const k of Object.keys(AL().months)) for (const it of AL().months[k].items) if (it.tag === 'pby:' + card) it.desc = 'PayBox Young – ' + (pbyName(card) || 'כרטיס ' + card); };
+  const pbyLabel = (card) => (pbyName(card) ? `${pbyName(card)} · ${card}` : `כרטיס ${card}`);
+  function openPbyName(card, onDone) {
+    sheet(`של מי כרטיס ${card}?`, (close) => {
+      const inp = h('input', { type: 'text', value: pbyName(card), placeholder: 'שם הילד', maxlength: '30', 'aria-label': 'שם' });
+      const save = () => { PB().names[card] = inp.value.trim(); pbyRelabel(card); S.save(); close(); if (onDone) onDone(); };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); }); setTimeout(() => inp.focus(), 50);
+      return h('div', { class: 'stack' }, h('label', { class: 'field' }, h('span', null, 'שם (יופיע בטאב ובשורת הקיזוז)'), inp),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'שמירה'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
+    }, () => render());
+  }
   function viewPby() {
     const all = PB().txns;
     const months = [...new Set(all.map((t) => t.date.slice(0, 7)))].sort();
@@ -2283,7 +2294,12 @@
       sheet('ייבוא PayBox', (close) => h('div', { class: 'stack' }, msgs.map((x) => h('div', { class: 'notice' }, x)), h('button', { class: 'btn primary', onclick: close }, 'סגירה')));
     } });
     const openPaste = () => sheet('הדבקת עסקאות PayBox', (close) => {
-      const cardIn = h('input', { type: 'text', inputmode: 'numeric', maxlength: '6', value: ui.pby.card || cards[0] || '', placeholder: '4 ספרות', 'aria-label': 'כרטיס', style: 'width:110px' });
+      const cardSel = h('select', { 'aria-label': 'של מי', style: 'width:auto' }, cards.map((c) => h('option', { value: c, selected: (ui.pby.card || cards[0]) === c }, pbyLabel(c))), h('option', { value: '_new', selected: !cards.length }, 'כרטיס חדש…'));
+      const newNum = h('input', { type: 'text', inputmode: 'numeric', maxlength: '6', placeholder: '4 ספרות', 'aria-label': 'מספר כרטיס', style: 'width:100px' });
+      const newName = h('input', { type: 'text', maxlength: '30', placeholder: 'שם', 'aria-label': 'שם', style: 'width:130px' });
+      const newBox = h('div', { class: 'row', style: 'gap:6px' }, newNum, newName);
+      const syncNew = () => { newBox.hidden = cardSel.value !== '_new'; }; cardSel.addEventListener('change', syncNew); syncNew();
+      const cardIn = h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, cardSel, newBox);
       const ta = h('textarea', { rows: 9, 'aria-label': 'עסקאות', placeholder: 'מעתיקים מאתר/אפליקציית כאל או מהאקסל ומדביקים כאן.\nלמשל:\n30/10/26  פיצטה  ₪72.00' });
       const prev = h('div', { class: 'stack', style: 'gap:6px' });
       const upd = () => {
@@ -2298,36 +2314,53 @@
       };
       ta.addEventListener('input', upd); setTimeout(() => ta.focus(), 50);
       return h('div', { class: 'stack' },
-        h('label', { class: 'field', style: 'flex-direction:row;align-items:center;gap:8px' }, h('span', null, 'כרטיס'), cardIn),
+        h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, h('span', null, 'של מי:'), cardIn),
         ta, prev,
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
           const r = P.parsePastedTxns(ta.value); if (!r.txns.length) return toast('לא זוהו עסקאות');
-          const card = (cardIn.value.match(/\d{2,6}/) || [])[0]; if (!card) return toast('צריך מספר כרטיס (4 ספרות)');
+          const card = cardSel.value !== '_new' ? cardSel.value : (newNum.value.match(/\d{2,6}/) || [])[0]; if (!card) return toast('צריך מספר כרטיס (4 ספרות)');
+          if (cardSel.value === '_new' && newName.value.trim()) PB().names[card] = newName.value.trim();
           const res = importPby([{ card, txns: r.txns.map((t) => ({ ...t, card })), noAmount: r.noAmount }]); S.save(); close();
           sheet('הדבקת PayBox', (c2) => h('div', { class: 'stack' }, h('div', { class: 'notice' }, pbyMsg(res)), h('button', { class: 'btn primary', onclick: c2 }, 'סגירה')));
         } }, 'הוספה'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
     }, () => render());
+    // the offset gets one line per child (tag pby:<card>); "everyone" adds/updates each child's line — never a combined one
+    const sumCard = (k, c) => Math.round(all.filter((t) => t.card === c && t.date.slice(0, 7) === k).reduce((n, t) => n + t.amount, 0) * 100) / 100;
+    const alLine = (k, c) => ((AL().months[k] || { items: [] }).items).find((it) => it.tag === 'pby:' + c);
     const toAlimony = () => {
-      if (!total) return toast('אין סכום בחודש הזה');
-      const cardsHere = [...new Set(list.map((t) => t.card))];
-      const tag = 'pby:' + (ui.pby.card || 'all');
-      const label = 'PayBox Young' + (cardsHere.length === 1 && pbyName(cardsHere[0]) ? ' – ' + pbyName(cardsHere[0]) : ui.pby.card ? ' ' + ui.pby.card : '');
-      const rec = alMonth(m); const ex = rec.items.find((it) => it.tag === tag);
-      if (ex) { ex.amount = Math.round(total * 100) / 100; ex.desc = label; toast(`עודכן בקיזוז ${mLabel(m)}: ${ils(total, true)}`); }
-      else { rec.items.push({ id: uid(), side: 'me', desc: label, amount: Math.round(total * 100) / 100, pct: +AL().settings.share, tag }); toast(`נוסף לקיזוז ${mLabel(m)}: ${ils(total, true)}`); }
-      S.save(); keep();
+      const cardsHere = ui.pby.card ? [ui.pby.card] : [...new Set(list.map((t) => t.card))];
+      if (!cardsHere.length) return toast('אין סכום בחודש הזה');
+      const rec = alMonth(m);
+      rec.items = rec.items.filter((it) => it.tag !== 'pby:all'); // older versions could add one combined line
+      const done = [];
+      for (const c of cardsHere) {
+        const amount = sumCard(m, c); const label = 'PayBox Young – ' + (pbyName(c) || 'כרטיס ' + c); const ex = alLine(m, c);
+        if (ex) { ex.amount = amount; ex.desc = label; } else rec.items.push({ id: uid(), side: 'me', desc: label, amount, pct: +AL().settings.share, tag: 'pby:' + c });
+        done.push(`${pbyName(c) || c} ${ils(amount, true)}`);
+      }
+      S.save(); toast(`קיזוז ${mLabel(m)}: ` + done.join(' · ')); keep();
     };
-    const inAl = ((AL().months[m] || { items: [] }).items).find((it) => it.tag === 'pby:' + (ui.pby.card || 'all'));
+    const cardsNow = ui.pby.card ? [ui.pby.card] : [...new Set(list.map((t) => t.card))];
+    const linesHere = cardsNow.map((c) => alLine(m, c)).filter(Boolean);
+    const inAl = linesHere.length ? { amount: linesHere.reduce((n, it) => n + it.amount, 0) } : null;
+    const stale = linesHere.length < cardsNow.length || linesHere.some((it) => Math.abs(it.amount - sumCard(m, it.tag.slice(4))) > 0.004);
     const doExport = () => exportXlsx('kupa-paybox-young', [
       { name: 'לפי חודש', rows: [['חודש', 'עסקאות', 'סה"כ'], ...months.slice().reverse().map((k) => { const xs = all.filter((t) => t.date.slice(0, 7) === k && (!ui.pby.card || t.card === ui.pby.card)); return [mLabel(k), xs.length, r2x(xs.reduce((n, t) => n + t.amount, 0))]; })] },
       { name: 'ענף ' + m, rows: [['ענף', 'עסקאות', 'סה"כ'], ...bySector.map((x) => [x.k, x.n, r2x(x.sum)])] },
       { name: 'בתי עסק ' + m, rows: [['בית עסק', 'עסקאות', 'סה"כ'], ...byMerch.map((x) => [x.k, x.n, r2x(x.sum)])] },
-      { name: 'עסקאות', rows: [['תאריך', 'בית עסק', 'ענף', 'סכום', 'כרטיס', 'בקליטה'], ...all.slice().sort((a, b) => b.date.localeCompare(a.date)).map((t) => [fullDate(t.date), t.merchant, t.sector, r2x(t.amount), t.card, t.pending ? 'כן' : ''])] },
+      { name: 'עסקאות', rows: [['תאריך', 'שם', 'בית עסק', 'ענף', 'סכום', 'כרטיס', 'בקליטה'], ...all.slice().sort((a, b) => b.date.localeCompare(a.date)).map((t) => [fullDate(t.date), pbyName(t.card), t.merchant, t.sector, r2x(t.amount), t.card, t.pending ? 'כן' : ''])] },
     ]);
     if (!all.length) return h('main', { class: 'stack' }, h('h1', null, 'PayBox Young'), fileIn,
       h('section', { class: 'card stack' }, h('p', null, 'כאן מעלים או מדביקים את פירוט החיוב החודשי של כרטיס PayBox Young מכאל (עם הסכומים). העסקאות נשמרות בנפרד — לא נכנסות לתקציב ולדוחות.'),
         h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => fileIn.click() }, 'העלאת קובץ'), h('button', { class: 'btn', onclick: openPaste }, 'הדבקה'))));
+    const unnamed = cards.filter((c) => !pbyName(c));
     return h('main', { class: 'stack' }, fileIn,
+      unnamed.length ? h('section', { class: 'card stack pbyask' }, unnamed.map((c) => {
+        const inp = h('input', { type: 'text', placeholder: 'שם הילד', maxlength: '30', 'aria-label': 'שם לכרטיס ' + c });
+        const save = () => { if (!inp.value.trim()) return toast('צריך שם'); PB().names[c] = inp.value.trim(); pbyRelabel(c); S.save(); render(); };
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+        return h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' }, h('b', null, `של מי כרטיס ${c}?`), inp, h('button', { class: 'btn small primary', onclick: save }, 'שמירה'));
+      })) : null,
       h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'PayBox Young', h('span', { class: 'faint', style: 'display:block;font-size:13px;font-weight:400' }, 'לפי תאריך עסקה · מחוץ לתקציב')),
         h('button', { class: 'btn small', onclick: () => fileIn.click() }, 'העלאת קובץ'), h('button', { class: 'btn small', onclick: openPaste }, 'הדבקה'), xlBtn(doExport)),
       h('section', { class: 'card stack' },
@@ -2336,11 +2369,16 @@
             h('button', { class: 'icon-btn', 'aria-label': 'חודש קודם', onclick: () => { ui.pby.month = addMonths(m, -1); render(); } }, icon('prev')),
             h('h2', null, mLabel(m)),
             h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.pby.month = addMonths(m, 1); render(); } }, icon('next'))),
-          cards.length > 1 ? h('select', { 'aria-label': 'כרטיס', style: 'width:auto', onchange: (e) => { ui.pby.card = e.target.value; render(); } }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.pby.card === c }, (pbyName(c) || 'כרטיס') + ' ' + c))) : null),
+          null),
+        h('div', { class: 'row pbycards', style: 'flex-wrap:wrap;gap:6px' },
+          cards.length > 1 ? h('button', { class: 'pill' + (!ui.pby.card ? ' accent' : ''), onclick: () => { ui.pby.card = ''; render(); } }, 'כולם') : null,
+          cards.map((c) => h('span', { class: 'pbychip' + (ui.pby.card === c || cards.length === 1 ? ' on' : '') },
+            h('button', { class: 'pbychipname', onclick: () => { ui.pby.card = cards.length > 1 && ui.pby.card !== c ? c : ''; render(); } }, pbyName(c) || `כרטיס ${c}`, h('span', { class: 'faint' }, ' · ' + c)),
+            h('button', { class: 'pbychipedit', 'aria-label': 'שינוי שם', title: 'שינוי שם', onclick: () => openPbyName(c) }, '✎')))),
         h('div', { class: 'kpis' }, kpi('סה"כ', amt(total, true)), kpi('עסקאות', String(list.length)), kpi('ממוצע לעסקה', list.length ? amt(total / list.length, true) : '—'),
           list.some((t) => t.pending) ? kpi('מתוכן בקליטה', String(list.filter((t) => t.pending).length)) : null),
         h('div', { class: 'row', style: 'flex-wrap:wrap' },
-          h('button', { class: 'btn small primary', onclick: toAlimony }, inAl ? `עדכון בקיזוז ${mLabel(m)} (כרגע ${ils(inAl.amount, true)})` : `הוספה לקיזוז מזונות · ${mLabel(m)}`),
+          h('button', { class: 'btn small ' + (!inAl || stale ? 'primary' : ''), onclick: toAlimony }, inAl ? (stale ? `עדכון בקיזוז ${mLabel(m)} (כרגע ${ils(inAl.amount, true)})` : `בקיזוז ${mLabel(m)} ✓ ${ils(inAl.amount, true)}`) : `הוספה לקיזוז מזונות · ${mLabel(m)}`),
           inAl ? h('button', { class: 'btn small', onclick: () => setView('alimony', { al: { month: m } }) }, 'לטאב מזונות ›') : null)),
       list.length ? h('div', { class: 'pbygrid' },
         h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'לפי ענף')),
@@ -2351,16 +2389,16 @@
             h('tbody', null, byMerch.map((x) => h('tr', null, h('td', null, x.k), h('td', { class: 'n' }, x.n), h('td', { class: 'n' }, nf2.format(x.sum)))))))) : h('div', { class: 'empty' }, 'אין עסקאות בחודש הזה'),
       list.length ? h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'עסקאות')),
         h('div', { class: 'qtx' }, list.map((t) => h('div', { class: 'pbytx' },
-          h('div', { class: 'qtxm' }, h('div', { class: 'm' }, t.merchant), h('div', { class: 'faint' }, dShort(t.date), t.sector ? ' · ' + t.sector : '', t.pending ? ' · בקליטה' : '', cards.length > 1 ? ' · ' + t.card : '')),
+          h('div', { class: 'qtxm' }, h('div', { class: 'm' }, t.merchant), h('div', { class: 'faint' }, dShort(t.date), t.sector ? ' · ' + t.sector : '', t.pending ? ' · בקליטה' : '', cards.length > 1 ? ' · ' + (pbyName(t.card) || t.card) : '')),
           h('b', null, ils(t.amount, true)),
           h('button', { class: 'icon-btn', 'aria-label': 'מחיקה', onclick: () => { PB().txns = PB().txns.filter((x) => x !== t); S.save(); keep(); } }, icon('trash')))))) : null,
       h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'כל החודשים')),
         h('table', { class: 'grid' }, h('thead', null, h('tr', null, h('th', null, 'חודש'), h('th', { class: 'n' }, 'עסקאות'), h('th', { class: 'n' }, 'סה"כ'), h('th', null, 'בקיזוז'))),
-          h('tbody', null, months.slice().reverse().map((k) => { const xs = all.filter((t) => t.date.slice(0, 7) === k && (!ui.pby.card || t.card === ui.pby.card)); const it = ((AL().months[k] || { items: [] }).items).find((i) => i.tag === 'pby:' + (ui.pby.card || 'all'));
+          h('tbody', null, months.slice().reverse().map((k) => { const xs = all.filter((t) => t.date.slice(0, 7) === k && (!ui.pby.card || t.card === ui.pby.card)); const ls = (ui.pby.card ? [ui.pby.card] : cards).map((c) => alLine(k, c)).filter(Boolean); const it = ls.length ? { amount: ls.reduce((n, x) => n + x.amount, 0) } : null;
             return h('tr', { class: k === m ? 'qon' : '' }, h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => { ui.pby.month = k; render(); window.scrollTo(0, 0); } }, mLabel(k)), h('td', { class: 'n' }, xs.length), h('td', { class: 'n' }, nf2.format(xs.reduce((n, t) => n + t.amount, 0))),
               h('td', null, it ? h('span', { class: 'pill ok' }, '✓ ' + ils(it.amount, true)) : h('span', { class: 'faint' }, '—'))); })))),
       h('section', { class: 'card stack' }, h('div', { class: 'section-title' }, h('h2', null, 'כרטיסים')),
-        cards.map((c) => h('label', { class: 'field' }, h('span', null, 'שם לכרטיס ' + c + ' (יופיע בשורת הקיזוז)'), h('input', { type: 'text', value: PB().names[c] || '', placeholder: 'למשל שם הילד', onchange: (e) => { PB().names[c] = e.target.value.trim(); S.save(); keep(); } }))),
+        cards.map((c) => h('label', { class: 'field' }, h('span', null, 'שם לכרטיס ' + c), h('input', { type: 'text', value: PB().names[c] || '', placeholder: 'למשל שם הילד', onchange: (e) => { PB().names[c] = e.target.value.trim(); pbyRelabel(c); S.save(); keep(); } }))),
         h('div', { class: 'faint' }, 'העסקאות כאן לא נכנסות לתקציב, לדוחות או לעסקאות. קובץ PayBox שמועלה בטאב "ייבוא" מגיע לכאן אוטומטית.')));
   }
 
