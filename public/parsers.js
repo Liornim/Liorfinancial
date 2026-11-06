@@ -363,7 +363,39 @@
     }).concat(pend);
   }
 
-  const api = { parseRows, verify, toISODate, parseInstallment, clean };
+  /* PayBox Young (kids' prepaid card, issued via Cal). Two exports seen:
+     - billing statement: title "...לחשבון פיקטיבי ... המסתיים ב-NNNN", columns תאריך עסקה | שם בית עסק | סכום עסקה | סכום חיוב | סוג עסקה | ענף | הערות
+     - "פירוט עסקאות וזיכויים": wallet column "PayBox NNNN", and סכום בש"ח = 0 for recorded rows (no amounts!) */
+  const flat = (v) => clean(v).replace(/\s/g, '');
+  // shown = the same sheet as displayed text (the "PayBox 2805" label is only a number format on 2805)
+  function isPayboxYoung(rows, shown) {
+    const box = (rs) => (rs || []).some((r) => r && r.some((c) => /^PayBox\s*\d{2,6}$/i.test(clean(c))));
+    return rows.slice(0, 4).some((r) => r && /חשבון\s*פיקטיבי/.test(clean(r[0]))) || box(rows) || box(shown);
+  }
+  function parsePayboxYoung(rows) {
+    const title = rows.slice(0, 4).map((r) => clean((r || [])[0])).find(Boolean) || '';
+    const cm = title.match(/(?:המסתיים ב-?\s*|ויזה\s*(?:בינלאומי\s*)?)(\d{4})/) || title.match(/(\d{4})\s*$/);
+    const out = { card: cm ? cm[1] : '?', txns: [], noAmount: 0 };
+    const hi = rows.findIndex((r) => r && flat(r[0]) === 'תאריךעסקה');
+    if (hi < 0) return out;
+    const cols = {}; rows[hi].forEach((c, i) => { cols[flat(c)] = i; });
+    const col = (...names) => names.map((n) => cols[n]).find((i) => i != null);
+    const cDate = 0, cMer = col('שםביתעסק'), cAmt = col('סכוםעסקה'), cIls = col('סכוםבש"ח', 'סכוםבש״ח'), cChg = col('סכוםחיוב'), cBill = col('מועדחיוב'),
+      cSec = col('ענף'), cNote = col('הערות'), cWal = Object.keys(cols).find((k) => k.startsWith('מזההכרטיס'));
+    for (const r of rows.slice(hi + 1)) {
+      if (!r) continue;
+      const date = toISODate(r[cDate]); if (!date) { if (out.txns.length && !clean(r[1])) continue; else continue; }
+      const merchant = clean(r[cMer]); if (!merchant) continue;
+      const pick = [cAmt, cIls, cChg].map((i) => (i == null ? null : num(r[i]))).find((v) => v != null && v !== 0);
+      const note = clean(r[cNote]);
+      const wal = cWal != null ? (clean(r[cols[cWal]]).match(/(\d{2,6})/) || [])[1] || '' : '';
+      if (pick == null) { out.noAmount++; continue; }
+      out.txns.push({ card: out.card, wallet: wal, date, merchant, amount: pick, sector: clean(r[cSec]), pending: /בקליטה/.test(note), billingDate: cBill != null ? toISODate(r[cBill]) : null });
+    }
+    return out;
+  }
+
+  const api = { parseRows, verify, toISODate, parseInstallment, clean, isPayboxYoung, parsePayboxYoung };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.KupaParsers = api;
 })(typeof window !== 'undefined' ? window : globalThis);

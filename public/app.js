@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.16'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line
+  const VERSION = '3.17'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line · 3.17 PayBox Young tab
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -45,6 +45,7 @@
     layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5',
     download: 'M12 4v12M7 11l5 5 5-5M4 20h16',
     edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+    wallet: 'M3 7h15a3 3 0 0 1 3 3v9H3zM3 7l12-3.5V7M16.5 13.5h.01',
     g_travel: 'M12 4a9 8 0 0 1 9 8H3a9 8 0 0 1 9-8zM12 12v7a2 2 0 0 0 4 0M12 4v-1',
     g_bag: 'M5 8h14l-1 12H6zM9 8V7a3 3 0 0 1 6 0v1',
     g_coins: 'M5 7c0-1.4 3.1-2.5 7-2.5s7 1.1 7 2.5-3.1 2.5-7 2.5S5 8.4 5 7zM5 7v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V7M5 12v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5',
@@ -266,12 +267,14 @@
   async function parseFile(file) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-    const results = [];
+    const results = []; const pby = [];
     for (const name of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
+      if (P.isPayboxYoung(rows, XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: null }))) { pby.push(P.parsePayboxYoung(rows)); continue; }
       const r = P.parseRows(rows);
       if (r && r.txns.length) results.push(r);
     }
+    if (pby.length && !results.length) { const e = new Error('PayBox Young'); e.pby = pby; throw e; }
     if (!results.length) throw new Error('הפורמט לא מזוהה. נתמכים כרגע: ישראכרט / אמריקן אקספרס, כאל / דיינרס.');
     const merged = { issuer: results[0].issuer, format: results[0].format, statements: results.flatMap((r) => r.statements), txns: results.flatMap((r) => r.txns), warnings: results.flatMap((r) => r.warnings) };
     merged.checks = P.verify(merged);
@@ -337,7 +340,7 @@
   }
 
   /* ---------------- app state + shell ---------------- */
-  const ui = { al: { month: '' }, repTab: 'overview', cmp: { dim: 'group', mode: 'counted', open: new Set(), limit: 40 }, e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
+  const ui = { pby: { month: '' }, al: { month: '' }, repTab: 'overview', cmp: { dim: 'group', mode: 'counted', open: new Set(), limit: 40 }, e: { q: '', group: '', cat: '', card: '', mFrom: '', mTo: '', min: '', max: '', counted: '', sort: 'amt-desc', limit: 200, learn: false, sel: new Set() }, q: { group: '', cat: '', month: '', range: 6, learn: false }, openGroups: new Set(), byGroup: true, repGroups: true, view: 'month', month: thisMonth(), f: EMPTY_F(), back: null, basis: 'billing', sort: 'date-desc', reportRange: 12, cmpA: null, cmpB: null, selMode: false, sel: new Set() };
 
   function setView(v, patch, keepBack) {
     if (!keepBack) ui.back = null;
@@ -360,7 +363,7 @@
   }
 
   function shell(content) {
-    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['quick', 'עדכון', 'layers'], ['edit', 'עריכה', 'edit'], ['alimony', 'מזונות', 'g_family'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
+    const tabs = [['month', 'חודש', 'month'], ['txns', 'עסקאות', 'list'], ['quick', 'עדכון', 'layers'], ['edit', 'עריכה', 'edit'], ['alimony', 'מזונות', 'g_family'], ['pby', 'PayBox', 'wallet'], ['import', 'ייבוא', 'upload'], ['reports', 'דוחות', 'chart'], ['invest', 'השקעות', 'trend'], ['settings', 'הגדרות', 'gear']];
     return h('div', null,
       h('div', { class: 'shell' + (ui.view === 'edit' ? ' wide' : '') },
         h('header', { class: 'topbar' },
@@ -374,7 +377,7 @@
 
   function render() {
     if (!S.data) return;
-    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest, quick: viewQuick, edit: viewEdit, alimony: viewAlimony };
+    const views = { month: viewMonth, txns: viewTxns, import: viewImport, reports: viewReports, settings: viewSettings, rules: viewRules, classify: viewClassify, invest: viewInvest, quick: viewQuick, edit: viewEdit, alimony: viewAlimony, pby: viewPby };
     $app.replaceChildren(shell(views[ui.view]()));
   }
 
@@ -880,7 +883,8 @@
         const parsed = await parseFile(f);
         pendingImports.push({ id: uid(), file: f.name, parsed, plan: planImport(parsed), force: false });
       } catch (e) {
-        pendingImports.push({ id: uid(), file: f.name, error: e.message || String(e) });
+        if (e.pby) { const r = importPby(e.pby); S.save(); pendingImports.push({ id: uid(), file: f.name, info: 'זה קובץ של PayBox Young — הוא לא נכנס לתקציב. ' + pbyMsg(r) }); }
+        else pendingImports.push({ id: uid(), file: f.name, error: e.message || String(e) });
       }
     }
     render();
@@ -889,6 +893,8 @@
   function previewCard(pi) {
     const remove = () => { pendingImports = pendingImports.filter((x) => x !== pi); render(); };
     if (pi.error) return h('section', { class: 'card stack' }, h('h3', null, pi.file), h('div', { class: 'notice bad' }, pi.error), h('button', { class: 'btn small', onclick: remove }, 'הסרה'));
+    if (pi.info) return h('section', { class: 'card stack' }, h('h3', null, pi.file), h('div', { class: 'notice' }, pi.info),
+      h('div', { class: 'row' }, h('button', { class: 'btn small primary', onclick: () => { remove(); setView('pby'); } }, 'לטאב PayBox ›'), h('button', { class: 'btn small', onclick: remove }, 'סגירה')));
     const { parsed, plan } = pi;
     const allOk = parsed.checks.every((c) => c.ok !== false);
     const sum = (arr) => arr.reduce((n, t) => n + (t.amount || 0), 0);
@@ -2226,6 +2232,113 @@
         h('div', { class: 'faint', style: 'margin-top:6px' }, 'לכל שורה יש אחוז משלה (משנים ליד השורה). כאן רק קובעים מה ייכנס אוטומטית לשורות חדשות. אם תמלא סכום מזונות, יוצג כמה לשלם אחרי הקיזוז.')));
   }
 
+  /* ---------------- PayBox Young ----------------
+     the kids' prepaid cards: kept apart from the budget (the money is not charged to me directly);
+     summary per purchase month, and one click to add the month's total to the alimony offset */
+  const PB = () => D().pby;
+  const pbyKey = (t) => [t.card, t.date, normMerchant(t.merchant), Math.round(t.amount * 100)].join('|');
+  function importPby(list) {
+    const r = { added: 0, dup: 0, upd: 0, noAmount: 0, cards: new Set(), months: new Set() };
+    const have = new Map(); for (const t of PB().txns) { const k = t.key; (have.get(k) || have.set(k, []).get(k)).push(t); }
+    for (const f of list) {
+      r.noAmount += f.noAmount || 0;
+      const seen = {};
+      for (const t of f.txns) {
+        const base = pbyKey(t); seen[base] = (seen[base] || 0) + 1; const key = base + '|' + seen[base]; // same purchase twice in a day stays twice
+        const ex = (have.get(key) || [])[0];
+        if (ex) { if (ex.pending && !t.pending) { ex.pending = false; r.upd++; } else r.dup++; continue; }
+        const n = { id: uid(), key, card: t.card, wallet: t.wallet || '', date: t.date, merchant: t.merchant, amount: t.amount, sector: t.sector || '', pending: !!t.pending };
+        PB().txns.push(n); have.set(key, [n]); r.added++; r.cards.add(t.card); r.months.add(t.date.slice(0, 7));
+      }
+    }
+    if (r.months.size) ui.pby.month = [...r.months].sort().slice(-1)[0];
+    return r;
+  }
+  const pbyMsg = (r) => [r.added ? `נוספו ${r.added} עסקאות` : 'לא נוספו עסקאות חדשות', r.dup ? `${r.dup} כבר היו` : '', r.upd ? `${r.upd} עודכנו מ"בקליטה"` : '',
+    r.noAmount ? `${r.noAmount} שורות בלי סכום דולגו (בקובץ "פירוט עסקאות וזיכויים" של PayBox הסכום הוא 0 — צריך את קובץ החיוב החודשי מכאל, עם עמודת "סכום עסקה")` : ''].filter(Boolean).join(' · ');
+  const pbyName = (card) => (PB().names[card] || '').trim();
+  function viewPby() {
+    const all = PB().txns;
+    const months = [...new Set(all.map((t) => t.date.slice(0, 7)))].sort();
+    if (!ui.pby.month || (!months.includes(ui.pby.month) && months.length)) ui.pby.month = months.slice(-1)[0] || thisMonth();
+    const m = ui.pby.month; const cards = [...new Set(all.map((t) => t.card))].sort();
+    if (ui.pby.card && !cards.includes(ui.pby.card)) ui.pby.card = '';
+    const list = all.filter((t) => t.date.slice(0, 7) === m && (!ui.pby.card || t.card === ui.pby.card)).sort((a, b) => b.date.localeCompare(a.date) || b.amount - a.amount);
+    const total = list.reduce((n, t) => n + t.amount, 0);
+    const keep = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const groupBy = (f) => { const g = new Map(); for (const t of list) { const k = f(t) || 'אחר'; const x = g.get(k) || { k, n: 0, sum: 0 }; x.n++; x.sum += t.amount; g.set(k, x); } return [...g.values()].sort((a, b) => b.sum - a.sum); };
+    const bySector = groupBy((t) => t.sector); const byMerch = groupBy((t) => t.merchant);
+    const smax = Math.max(1, ...bySector.map((x) => x.sum));
+    const fileIn = h('input', { type: 'file', accept: '.xlsx,.xls', multiple: true, hidden: true, onchange: async (e) => {
+      const files = [...e.target.files]; e.target.value = ''; let msgs = [];
+      for (const f of files) {
+        try {
+          const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: false }); const found = [];
+          for (const n of wb.SheetNames) { const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }); if (P.isPayboxYoung(rows, XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: null }))) found.push(P.parsePayboxYoung(rows)); }
+          if (!found.length) { msgs.push(`${f.name}: לא זוהה כקובץ PayBox Young`); continue; }
+          msgs.push(`${f.name}: ` + pbyMsg(importPby(found)));
+        } catch (err) { msgs.push(`${f.name}: ${err.message || err}`); }
+      }
+      S.save(); render();
+      sheet('ייבוא PayBox', (close) => h('div', { class: 'stack' }, msgs.map((x) => h('div', { class: 'notice' }, x)), h('button', { class: 'btn primary', onclick: close }, 'סגירה')));
+    } });
+    const toAlimony = () => {
+      if (!total) return toast('אין סכום בחודש הזה');
+      const cardsHere = [...new Set(list.map((t) => t.card))];
+      const tag = 'pby:' + (ui.pby.card || 'all');
+      const label = 'PayBox Young' + (cardsHere.length === 1 && pbyName(cardsHere[0]) ? ' – ' + pbyName(cardsHere[0]) : ui.pby.card ? ' ' + ui.pby.card : '');
+      const rec = alMonth(m); const ex = rec.items.find((it) => it.tag === tag);
+      if (ex) { ex.amount = Math.round(total * 100) / 100; ex.desc = label; toast(`עודכן בקיזוז ${mLabel(m)}: ${ils(total, true)}`); }
+      else { rec.items.push({ id: uid(), side: 'me', desc: label, amount: Math.round(total * 100) / 100, pct: +AL().settings.share, tag }); toast(`נוסף לקיזוז ${mLabel(m)}: ${ils(total, true)}`); }
+      S.save(); keep();
+    };
+    const inAl = ((AL().months[m] || { items: [] }).items).find((it) => it.tag === 'pby:' + (ui.pby.card || 'all'));
+    const doExport = () => exportXlsx('kupa-paybox-young', [
+      { name: 'לפי חודש', rows: [['חודש', 'עסקאות', 'סה"כ'], ...months.slice().reverse().map((k) => { const xs = all.filter((t) => t.date.slice(0, 7) === k && (!ui.pby.card || t.card === ui.pby.card)); return [mLabel(k), xs.length, r2x(xs.reduce((n, t) => n + t.amount, 0))]; })] },
+      { name: 'ענף ' + m, rows: [['ענף', 'עסקאות', 'סה"כ'], ...bySector.map((x) => [x.k, x.n, r2x(x.sum)])] },
+      { name: 'בתי עסק ' + m, rows: [['בית עסק', 'עסקאות', 'סה"כ'], ...byMerch.map((x) => [x.k, x.n, r2x(x.sum)])] },
+      { name: 'עסקאות', rows: [['תאריך', 'בית עסק', 'ענף', 'סכום', 'כרטיס', 'בקליטה'], ...all.slice().sort((a, b) => b.date.localeCompare(a.date)).map((t) => [fullDate(t.date), t.merchant, t.sector, r2x(t.amount), t.card, t.pending ? 'כן' : ''])] },
+    ]);
+    if (!all.length) return h('main', { class: 'stack' }, h('h1', null, 'PayBox Young'), fileIn,
+      h('section', { class: 'card stack' }, h('p', null, 'כאן מעלים את פירוט החיוב החודשי של כרטיס PayBox Young מאתר/אפליקציית כאל (הקובץ עם עמודת "סכום עסקה"). העסקאות נשמרות בנפרד — לא נכנסות לתקציב ולדוחות.'),
+        h('button', { class: 'btn primary', onclick: () => fileIn.click() }, 'העלאת קובץ')));
+    return h('main', { class: 'stack' }, fileIn,
+      h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'PayBox Young', h('span', { class: 'faint', style: 'display:block;font-size:13px;font-weight:400' }, 'לפי תאריך עסקה · מחוץ לתקציב')),
+        h('button', { class: 'btn small', onclick: () => fileIn.click() }, 'העלאת קובץ'), xlBtn(doExport)),
+      h('section', { class: 'card stack' },
+        h('div', { class: 'row', style: 'flex-wrap:wrap' },
+          h('div', { class: 'monthnav' },
+            h('button', { class: 'icon-btn', 'aria-label': 'חודש קודם', onclick: () => { ui.pby.month = addMonths(m, -1); render(); } }, icon('prev')),
+            h('h2', null, mLabel(m)),
+            h('button', { class: 'icon-btn', 'aria-label': 'חודש הבא', onclick: () => { ui.pby.month = addMonths(m, 1); render(); } }, icon('next'))),
+          cards.length > 1 ? h('select', { 'aria-label': 'כרטיס', style: 'width:auto', onchange: (e) => { ui.pby.card = e.target.value; render(); } }, h('option', { value: '' }, 'כל הכרטיסים'), cards.map((c) => h('option', { value: c, selected: ui.pby.card === c }, (pbyName(c) || 'כרטיס') + ' ' + c))) : null),
+        h('div', { class: 'kpis' }, kpi('סה"כ', amt(total, true)), kpi('עסקאות', String(list.length)), kpi('ממוצע לעסקה', list.length ? amt(total / list.length, true) : '—'),
+          list.some((t) => t.pending) ? kpi('מתוכן בקליטה', String(list.filter((t) => t.pending).length)) : null),
+        h('div', { class: 'row', style: 'flex-wrap:wrap' },
+          h('button', { class: 'btn small primary', onclick: toAlimony }, inAl ? `עדכון בקיזוז ${mLabel(m)} (כרגע ${ils(inAl.amount, true)})` : `הוספה לקיזוז מזונות · ${mLabel(m)}`),
+          inAl ? h('button', { class: 'btn small', onclick: () => setView('alimony', { al: { month: m } }) }, 'לטאב מזונות ›') : null)),
+      list.length ? h('div', { class: 'pbygrid' },
+        h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'לפי ענף')),
+          h('div', { class: 'stack', style: 'gap:8px' }, bySector.map((x) => h('div', { class: 'pbybar' }, h('div', { class: 'row' }, h('span', { class: 'grow' }, x.k, h('span', { class: 'faint' }, ` · ${x.n}`)), h('b', null, ils(x.sum, true))),
+            h('div', { class: 'bar' }, h('i', { style: `width:${Math.max(2, (x.sum / smax) * 100)}%` })))))),
+        h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'לפי בית עסק')),
+          h('table', { class: 'grid' }, h('thead', null, h('tr', null, h('th', null, 'בית עסק'), h('th', { class: 'n' }, 'פעמים'), h('th', { class: 'n' }, 'סה"כ'))),
+            h('tbody', null, byMerch.map((x) => h('tr', null, h('td', null, x.k), h('td', { class: 'n' }, x.n), h('td', { class: 'n' }, nf2.format(x.sum)))))))) : h('div', { class: 'empty' }, 'אין עסקאות בחודש הזה'),
+      list.length ? h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'עסקאות')),
+        h('div', { class: 'qtx' }, list.map((t) => h('div', { class: 'pbytx' },
+          h('div', { class: 'qtxm' }, h('div', { class: 'm' }, t.merchant), h('div', { class: 'faint' }, dShort(t.date), t.sector ? ' · ' + t.sector : '', t.pending ? ' · בקליטה' : '', cards.length > 1 ? ' · ' + t.card : '')),
+          h('b', null, ils(t.amount, true)),
+          h('button', { class: 'icon-btn', 'aria-label': 'מחיקה', onclick: () => { PB().txns = PB().txns.filter((x) => x !== t); S.save(); keep(); } }, icon('trash')))))) : null,
+      h('section', { class: 'card' }, h('div', { class: 'section-title' }, h('h2', null, 'כל החודשים')),
+        h('table', { class: 'grid' }, h('thead', null, h('tr', null, h('th', null, 'חודש'), h('th', { class: 'n' }, 'עסקאות'), h('th', { class: 'n' }, 'סה"כ'), h('th', null, 'בקיזוז'))),
+          h('tbody', null, months.slice().reverse().map((k) => { const xs = all.filter((t) => t.date.slice(0, 7) === k && (!ui.pby.card || t.card === ui.pby.card)); const it = ((AL().months[k] || { items: [] }).items).find((i) => i.tag === 'pby:' + (ui.pby.card || 'all'));
+            return h('tr', { class: k === m ? 'qon' : '' }, h('td', { class: 'drill', role: 'button', tabindex: 0, onclick: () => { ui.pby.month = k; render(); window.scrollTo(0, 0); } }, mLabel(k)), h('td', { class: 'n' }, xs.length), h('td', { class: 'n' }, nf2.format(xs.reduce((n, t) => n + t.amount, 0))),
+              h('td', null, it ? h('span', { class: 'pill ok' }, '✓ ' + ils(it.amount, true)) : h('span', { class: 'faint' }, '—'))); })))),
+      h('section', { class: 'card stack' }, h('div', { class: 'section-title' }, h('h2', null, 'כרטיסים')),
+        cards.map((c) => h('label', { class: 'field' }, h('span', null, 'שם לכרטיס ' + c + ' (יופיע בשורת הקיזוז)'), h('input', { type: 'text', value: PB().names[c] || '', placeholder: 'למשל שם הילד', onchange: (e) => { PB().names[c] = e.target.value.trim(); S.save(); keep(); } }))),
+        h('div', { class: 'faint' }, 'העסקאות כאן לא נכנסות לתקציב, לדוחות או לעסקאות. קובץ PayBox שמועלה בטאב "ייבוא" מגיע לכאן אוטומטית.')));
+  }
+
   /* ---------------- view: settings ---------------- */
   function viewSettings() {
     const m = ui.month;
@@ -2460,6 +2573,7 @@
     d.cards = d.cards || {}; d.budgets = d.budgets || {}; d.sectors = d.sectors || {}; d.imports = d.imports || [];
     d.invest = d.invest || { txns: [], prices: {}, settings: { fee: 8, cgt: 0.25 } };
     d.alimony = d.alimony || { settings: { share: 100, monthly: 0 }, months: {} };
+    d.pby = d.pby || { names: {}, txns: [] };
     d.invest.prices = d.invest.prices || {}; d.invest.settings = Object.assign({ fee: 8, cgt: 0.25 }, d.invest.settings || {});
     if (!d.groups || !d.groups.length) { // 3.7: category groups
       d.groups = DEFAULT_GROUPS.slice().sort((x, y) => x[3] - y[3]).map(([key, name, ic, ci]) => ({ id: uid(), key, name, icon: ic, color: GROUP_COLORS[ci] })); // shown in this order
@@ -2491,7 +2605,7 @@
     // refresh within the idle window: continue without the password
     if (await S.resume()) {
       let v = 'month'; try { v = sessionStorage.getItem('kupa-view') || 'month'; } catch (e) { /* ignore */ }
-      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest', 'quick', 'edit', 'alimony'].includes(v) ? v : 'month');
+      startApp(['month', 'txns', 'import', 'reports', 'settings', 'rules', 'classify', 'invest', 'quick', 'edit', 'alimony', 'pby'].includes(v) ? v : 'month');
     } else lockScreen();
   })();
 })();
