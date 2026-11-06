@@ -1,7 +1,7 @@
 /* Kupa — personal budget vs actual. All data lives encrypted on the server; this file runs only in the browser. */
 (function () {
   'use strict';
-  const VERSION = '3.17'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line · 3.17 PayBox Young tab
+  const VERSION = '3.18'; // bump on every change: 1.0 initial · 1.2 auto-lock 3 min · 1.3 version label · 1.4 multi-select, new category from any menu, Amex Export (.xls) format · 1.5 stay unlocked across refresh, report drill-down · 1.6 billing-month basis (default), both dates on transactions · 1.7 report by card · 1.8 Cal 'transactions & credits' format · 1.9 exclude cards · 2.0 searchable A-Z category picker · 2.1 remember BIT/PAYBOX category (opt-in) · 2.2 amount range filter · 2.3 rules manager (amount rules, run one rule, rule drill-down, lock from auto) · 2.4 sort transactions · 2.5 sort rules · 2.6 rule month range + day-of-month range, matching list in editor · 2.7 month range + day range moved to transaction filters · 2.8 quick-classify assistant · 2.9 rules import, Google lookup, by-card report counts only counted spending · 3.0 import: edit category per row, confidence filter · 3.1 import: new / already-exists filter · 3.2 import filter counts respect each other · 3.3 investments module · 3.4 investments: spreadsheet-style entry + paste a table · 3.5 investments: upload xlsx/csv · 3.6 Isracard 'not yet recorded' transactions · 3.7 category groups · 3.8 quick-update tab (group → category → transactions) · 3.9 Excel export, quick: single month, add group, hide empty rows · 3.10 quick: expenses sorted by amount · 3.11 wide editor tab · 3.12 month-vs-month comparison report · 3.13 alimony offset tab · 3.14 list paste: any dash as separator · 3.15 alimony: both sides, net offset · 3.16 alimony: percent per line · 3.17 PayBox Young tab · 3.18 PayBox paste
   const VERSION_DATE = '12.10.26';
   const EMPTY_F = () => ({ q: '', cat: '', group: '', card: '', month: '', onlyNone: false, abroad: false, standing: false, min: '', max: '', rule: '', mFrom: '', mTo: '', dFrom: '', dTo: '' });
   const S = window.KupaStore;
@@ -2282,6 +2282,31 @@
       S.save(); render();
       sheet('ייבוא PayBox', (close) => h('div', { class: 'stack' }, msgs.map((x) => h('div', { class: 'notice' }, x)), h('button', { class: 'btn primary', onclick: close }, 'סגירה')));
     } });
+    const openPaste = () => sheet('הדבקת עסקאות PayBox', (close) => {
+      const cardIn = h('input', { type: 'text', inputmode: 'numeric', maxlength: '6', value: ui.pby.card || cards[0] || '', placeholder: '4 ספרות', 'aria-label': 'כרטיס', style: 'width:110px' });
+      const ta = h('textarea', { rows: 9, 'aria-label': 'עסקאות', placeholder: 'מעתיקים מאתר/אפליקציית כאל או מהאקסל ומדביקים כאן.\nלמשל:\n30/10/26  פיצטה  ₪72.00' });
+      const prev = h('div', { class: 'stack', style: 'gap:6px' });
+      const upd = () => {
+        const r = P.parsePastedTxns(ta.value); const sum = r.txns.reduce((n, t) => n + t.amount, 0);
+        const ms = [...new Set(r.txns.map((t) => t.date.slice(0, 7)))].sort().map(mLabel);
+        prev.replaceChildren(...[
+          r.txns.length ? h('div', null, h('b', null, `${r.txns.length} עסקאות · ${ils(sum, true)}`), h('span', { class: 'faint' }, ' · ' + ms.join(', '))) : ta.value.trim() ? h('div', { class: 'warn' }, 'לא זוהו עסקאות עם תאריך, בית עסק וסכום') : '',
+          r.noAmount ? h('div', { class: 'warn' }, `${r.noAmount} שורות בלי סכום (₪0) — ידלגו. זה קורה בהעתקה מ"פירוט עסקאות וזיכויים"; צריך את פירוט החיוב החודשי.`) : '',
+          r.txns.length ? h('div', { class: 'pbyprev' }, r.txns.slice(0, 40).map((t) => h('div', { class: 'pbyprow' }, h('span', { class: 'faint' }, dShort(t.date)), h('span', { class: 'm' }, t.merchant, t.pending ? h('span', { class: 'faint' }, ' · בקליטה') : null), h('b', null, ils(t.amount, true)))),
+            r.txns.length > 40 ? h('div', { class: 'faint' }, `ועוד ${r.txns.length - 40}…`) : null) : '',
+        ].filter(Boolean));
+      };
+      ta.addEventListener('input', upd); setTimeout(() => ta.focus(), 50);
+      return h('div', { class: 'stack' },
+        h('label', { class: 'field', style: 'flex-direction:row;align-items:center;gap:8px' }, h('span', null, 'כרטיס'), cardIn),
+        ta, prev,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => {
+          const r = P.parsePastedTxns(ta.value); if (!r.txns.length) return toast('לא זוהו עסקאות');
+          const card = (cardIn.value.match(/\d{2,6}/) || [])[0]; if (!card) return toast('צריך מספר כרטיס (4 ספרות)');
+          const res = importPby([{ card, txns: r.txns.map((t) => ({ ...t, card })), noAmount: r.noAmount }]); S.save(); close();
+          sheet('הדבקת PayBox', (c2) => h('div', { class: 'stack' }, h('div', { class: 'notice' }, pbyMsg(res)), h('button', { class: 'btn primary', onclick: c2 }, 'סגירה')));
+        } }, 'הוספה'), h('button', { class: 'btn', onclick: close }, 'ביטול')));
+    }, () => render());
     const toAlimony = () => {
       if (!total) return toast('אין סכום בחודש הזה');
       const cardsHere = [...new Set(list.map((t) => t.card))];
@@ -2300,11 +2325,11 @@
       { name: 'עסקאות', rows: [['תאריך', 'בית עסק', 'ענף', 'סכום', 'כרטיס', 'בקליטה'], ...all.slice().sort((a, b) => b.date.localeCompare(a.date)).map((t) => [fullDate(t.date), t.merchant, t.sector, r2x(t.amount), t.card, t.pending ? 'כן' : ''])] },
     ]);
     if (!all.length) return h('main', { class: 'stack' }, h('h1', null, 'PayBox Young'), fileIn,
-      h('section', { class: 'card stack' }, h('p', null, 'כאן מעלים את פירוט החיוב החודשי של כרטיס PayBox Young מאתר/אפליקציית כאל (הקובץ עם עמודת "סכום עסקה"). העסקאות נשמרות בנפרד — לא נכנסות לתקציב ולדוחות.'),
-        h('button', { class: 'btn primary', onclick: () => fileIn.click() }, 'העלאת קובץ')));
+      h('section', { class: 'card stack' }, h('p', null, 'כאן מעלים או מדביקים את פירוט החיוב החודשי של כרטיס PayBox Young מכאל (עם הסכומים). העסקאות נשמרות בנפרד — לא נכנסות לתקציב ולדוחות.'),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => fileIn.click() }, 'העלאת קובץ'), h('button', { class: 'btn', onclick: openPaste }, 'הדבקה'))));
     return h('main', { class: 'stack' }, fileIn,
       h('div', { class: 'row', style: 'flex-wrap:wrap' }, h('h1', { class: 'grow' }, 'PayBox Young', h('span', { class: 'faint', style: 'display:block;font-size:13px;font-weight:400' }, 'לפי תאריך עסקה · מחוץ לתקציב')),
-        h('button', { class: 'btn small', onclick: () => fileIn.click() }, 'העלאת קובץ'), xlBtn(doExport)),
+        h('button', { class: 'btn small', onclick: () => fileIn.click() }, 'העלאת קובץ'), h('button', { class: 'btn small', onclick: openPaste }, 'הדבקה'), xlBtn(doExport)),
       h('section', { class: 'card stack' },
         h('div', { class: 'row', style: 'flex-wrap:wrap' },
           h('div', { class: 'monthnav' },

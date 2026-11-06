@@ -395,7 +395,58 @@
     return out;
   }
 
-  const api = { parseRows, verify, toISODate, parseInstallment, clean, isPayboxYoung, parsePayboxYoung };
+  /* pasted text (copied from the Cal site/app or from Excel) -> [{date, merchant, amount, sector, pending}]
+     handles: tab-separated rows (with or without the header row), one transaction per line
+     ("3/11/26 עולם הממתקים ₪24.00"), and one field per line (merchant / date / amount). */
+  const P_DATE = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/;
+  const P_MONEY = /^(?:₪\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\s*₪)?$|^(?:₪\s*)?-?\d+(?:\.\d+)?(?:\s*₪)?$/;
+  const P_SKIP = /^(רגילה|רכישה רגילה|עסקה בקליטה|בקליטה|הוראת קבע|קרדיט|תשלומים|זיכוי|PayBox\s*\d+|\d{1,2}\s*מתוך\s*\d{1,2})$/i;
+  const pDate = (v) => { const m = clean(v).match(P_DATE); if (!m) return null; let y = +m[3]; if (y < 100) y += 2000; const d = +m[1], mo = +m[2]; if (mo < 1 || mo > 12 || d < 1 || d > 31) return null; return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`; };
+  const pMoney = (v) => { const c = clean(v); if (!P_MONEY.test(c) || P_DATE.test(c)) return null; return +c.replace(/[₪,\s]/g, ''); };
+  function parsePastedTxns(text) {
+    const out = { txns: [], noAmount: 0, skipped: [] };
+    const lines = String(text || '').replace(/[‎‏‪-‮⁦-⁩]/g, '').split(/\r?\n/).map((l) => l.replace(/\s+$/, ''));
+    const tabbed = lines.filter((l) => l.includes('\t')).length >= Math.max(1, lines.filter(Boolean).length / 3);
+    if (tabbed) {
+      // header (if pasted) tells which column is the transaction amount and which is the sector
+      let iAmt = -1, iSec = -1;
+      for (const l of lines) {
+        const cells = l.split('\t').map((c) => clean(c).replace(/^"|"$/g, '').replace(/\s/g, ''));
+        if (cells.some((c) => /^תאריך(עסקה)?$/.test(c))) { iAmt = cells.findIndex((c) => c === 'סכוםעסקה'); iSec = cells.findIndex((c) => c === 'ענף'); if (iAmt < 0) iAmt = cells.findIndex((c) => /^סכום/.test(c)); continue; }
+        const raw = l.split('\t').map(clean); const di = raw.findIndex((c) => pDate(c)); if (di < 0) { if (raw.some(Boolean)) out.skipped.push(l.trim()); continue; }
+        const date = pDate(raw[di]);
+        const merchant = raw.find((c, i) => i !== di && c && !pDate(c) && pMoney(c) == null && !P_SKIP.test(c));
+        let amount = iAmt >= 0 ? pMoney(raw[iAmt]) : null;
+        if (amount == null || amount === 0) { const ms = raw.map((c, i) => (i === di ? null : pMoney(c))).filter((v) => v != null && v !== 0); if (iAmt < 0 && ms.length) amount = ms[0]; }
+        if (!merchant) { out.skipped.push(l.trim()); continue; }
+        if (amount == null || amount === 0) { out.noAmount++; continue; }
+        // no header: the sector is the text right after the transaction type ("רגילה")
+        const ti = raw.findIndex((c) => /^(רגילה|רכישה רגילה|הוראת קבע|תשלומים|קרדיט)$/.test(c));
+        const sector = iSec >= 0 ? clean(raw[iSec]) : ti >= 0 && raw[ti + 1] && pMoney(raw[ti + 1]) == null && !P_SKIP.test(raw[ti + 1]) && !/בקליטה/.test(raw[ti + 1]) ? raw[ti + 1] : '';
+        out.txns.push({ date, merchant, amount, sector, pending: /בקליטה/.test(l) });
+      }
+      return out;
+    }
+    // free text: a line with date + text + amount is a full transaction; otherwise collect fields line by line
+    let cur = {};
+    const flush = () => { if (cur.date && cur.merchant) { if (cur.amount) out.txns.push({ date: cur.date, merchant: cur.merchant, amount: cur.amount, sector: '', pending: !!cur.pending }); else out.noAmount++; } cur = {}; };
+    for (const l0 of lines) {
+      const l = clean(l0); if (!l) continue;
+      const one = l.match(/^(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s+(.+?)\s+(₪\s*-?[\d,]+(?:\.\d+)?|-?[\d,]+\.\d{2}\s*₪?)(?:\s+.*)?$/);
+      if (one && pDate(one[1])) { flush(); cur = { date: pDate(one[1]), merchant: clean(one[2]), amount: pMoney(one[3]) || 0, pending: /בקליטה/.test(l) }; flush(); continue; }
+      const d = pDate(l), mny = pMoney(l);
+      if (d) { if (cur.date) flush(); cur.date = d; }
+      else if (mny != null) { if (cur.amount != null && cur.amount !== 0) flush(); cur.amount = mny; }
+      else if (/בקליטה/.test(l)) cur.pending = true;
+      else if (P_SKIP.test(l) || /^(תאריך|שם בית עסק|סכום|מועד|סוג|ענף|הערות|מזהה)/.test(l)) continue;
+      else { if (cur.merchant && (cur.date || cur.amount != null)) flush(); cur.merchant = l; } // a text line with nothing after it (e.g. a sector) is replaced by the next one
+      if (cur.date && cur.merchant && cur.amount != null) flush();
+    }
+    flush();
+    return out;
+  }
+
+  const api = { parseRows, verify, toISODate, parseInstallment, clean, isPayboxYoung, parsePayboxYoung, parsePastedTxns };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.KupaParsers = api;
 })(typeof window !== 'undefined' ? window : globalThis);
